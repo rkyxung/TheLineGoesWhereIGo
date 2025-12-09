@@ -1,0 +1,116 @@
+[
+    {
+        "id": "intro",
+        "svgPath": "svg/Intro.svg",
+        "imgPath": "img/Intro.jpg",
+        "text": "안녕하세요!\n저는 김가영이라고 합니다.\n간단하게 제 소개를 하자면,\n나이는 만 22살, 2003년 7월 19일생입니다.\n\n그리고 저는 현재 계원예술대학교 \n디지털미디어디자인과에 재학 중입니다.\n곧 졸업을 앞두고 있어요!!\n그래서 저의 학교 생활 이야기를 풀어볼까 합니다.\n재미있게 봐주세요!",
+        "textPosition": "top-left"
+    },
+    {
+        "id": "Going-to-School",
+        "svgPath": "svg/Going-to-School.svg",
+        "imgPath": "img/Going-to-School.jpg",
+        "text": "무거운 가방을 메고, 무거운 몸을 이끌고... 등교를 합니다.\n늦잠을 자면 모자를 쓰고 겨우 지각을 면하곤 합니다 ㅎㅎ",
+        "textPosition": "top-right"
+    },
+    {
+        "id": "Cherry-Blossom-Viewing",
+        "svgPath": "svg/Cherry-Blossom-Viewing.svg",
+        "imgPath": "img/Cherry-Blossom-Viewing.jpg",
+        "text": "새내기 시절, 캠퍼스의 첫 봄을 맞아 공강 시간에 벚꽃 구경을 갔어요.\n학교 후문 쪽 길에 벚꽃이 피면, 그 길이 참 예쁘더라고요.",
+        "textPosition": "top-right"
+    },
+    {
+        "id": "With-Classmates",
+        "svgPath": "svg/With-Classmates.svg",
+        "imgPath": "img/With-Classmates.jpg",
+        "text": "날이 좋을 땐 동기들과 사진도 찍고 놀아요!",
+        "textPosition": "bottom-center"
+    },
+    {
+        "id": "Design-Profile",
+        "svgPath": "svg/Design-Profile.svg",
+        "imgPath": "img/Design-Profile.jpg",
+        "text": "그러다 디자인 기초 강의에서 자기소개 웹을 만들어야 했어요.\n그래서 머쓱하게 포즈를 잡아가며 프로필 사진을 찍었습니다.\n그 사진은 아직도 제 웹에 어정쩡하게 들어가 있습니다...ㅎㅎ",
+        "textPosition": "top-left"
+    },
+    {
+        "id": "Video-Shooting",
+        "svgPath": "svg/Video-Shooting.svg",
+        "imgPath": "img/Video-Shooting.jpg",
+        "text": "저의 첫 팀플은 영상 기초 강의였습니다.\n팀플 프로젝트에 필요한 피크닉 촬영을 나갔어요.\n저는 카메라 잡는 시간보다 젓가락을 든 시간이 더 길었던 거 같습니다.\n그래서 재밌었던 기억으로 남아있습니다.",
+        "textPosition": "top-right"
+    },
+    {
+        "id": "Sleep",
+        "svgPath": "svg/Sleep.svg",
+        "imgPath": "img/Sleep.jpg",
+        "text": "이렇게 하루하루 강의를 듣다보면,\n1교시 강의는 정말 졸려요...\n그럴 땐 쉬는 시간에 잠을 보충합니다ㅎㅎ",
+        "textPosition": "bottom-left"
+    },
+    {
+        "id": "Attending-Lecture",
+        "svgPath": "svg/Attending-Lecture.svg",
+        "imgPath": "img/Attending-Lecture.jpg",
+        "text": "물론 집중해서 듣는 날이 더 많습니다! 아마도..?\n열심히 집중해서 끄적끄적하다보면,",
+        "textPosition": "bottom-center"
+    },
+    {
+        "id": "Totoro",
+        "svgPath": "svg/Totoro.svg",
+        "imgPath": "img/Totoro.jpg",
+        "text": "이렇게 3D Max로 토토로를 만들어요.\n귀엽게 똑같이 만들고 싶었는데, 어딘가 모자란 토토로가 완성되었습니다...",
+        "textPosition": "bottom-center"
+    },
+    {
+        "id": "Specialization",
+        "text": "이렇게 1학년 땐 이런저런 다양한 전공 수업을 다 듣다 보면,\n2학년 세부전공 선택의 날이 찾아옵니다.\n저는 프로그래밍으로 택했습니다.",
+        "textPosition": "top-right"
+    },
+    {
+        "id": "Presentation",
+        "svgPath": "svg/Presentation.svg",
+        "imgPath": "img/Presentation.jpg",
+        "text": "또 이렇게 열심히 코드를 치다보니 \n팀플로 만든 웹이 연합PT로 나가게 되었습니다!\n발표 내내 손발을 덜덜 떨었습니다..\n그래도 나름 뿌듯하고 좋았습니다.",
+        "textPosition": "top-right"
+    },
+    {
+        "id": "Final-Semester",
+        "text": "대망의 졸업학기가 찾아왔습니다.\n졸업전시라는 거대한 프로젝트가 다가오면서\n정말... 많은 것들이 순식간에 지나갔던 것 같습니다.",
+        "textPosition": "top-right"
+    },
+    {
+        "id": "Final-Semester02",
+        "svgPath01": "svg/Unity.svg",
+        "svgPath02": "svg/Filming.svg",
+        "svgPath03": "svg/Weekend-Cafe-Study.svg",
+        "svgPath04": "svg/Hammock.svg",
+        "imgPath01": "img/Unity.jpg",
+        "imgPath02": "img/Filming.jpg",
+        "imgPath03": "img/Weekend-Cafe-Study.jpg",
+        "imgPath04": "img/Hammock.jpg",
+        "text": "신기한 VR도 하고,\n우리 학과 학우들의 프로필 사진 촬영도 진행하고,\n팀원들과 졸업전시 웹도 구현하고,\n그러다 지치면 잠깐 해먹에 누워 숨도 돌리고...\n이런 하루들이 계속 반복됐어요.",
+        "textPosition": "top-right"
+    },
+    {
+        "id": "Final-Practical-Exam",
+        "svgPath": "svg/Final-Practical-Exam.svg",
+        "imgPath": "img/Final-Practical-Exam.jpg",
+        "text": "그렇게 바쁘게 지내다 보니 어느새 본심 날이 찾아왔습니다.\n이때 정말 떨리고 긴장됐습니다.\n운이 좋게도, 좋은 팀원들과 좋은 작품을 만들게 되어 \n좋은 결과까지 맞이할 수 있었습니다!",
+        "textPosition": "top-left"
+    },
+    {
+        "id": "Graduation-Exhibition",
+        "svgPath": "svg/Graduation-Exhibition.svg",
+        "imgPath": "img/Graduation-Exhibition.jpg",
+        "text": "그렇게 고생도, 애착도 가득한 졸업전시가 끝나니\n졸업학기가 정말 빠르게 지나갔네요.\n저의 학교 생활 이야기는 여기까지입니다.",
+        "textPosition": "top-left"
+    },
+    {
+        "id": "Wrap-up",
+        "svgPath": "svg/Wrap-up.svg",
+        "imgPath": "img/Wrap-up.jpg",
+        "text": "밤새 과제하고 통학하는 게 힘들기만 했다고 생각했는데,\n돌이켜보니 즐거웠던 순간이 더 많았습니다.\n졸업을 하면 저는 프론트엔드 개발자로 나아가고 싶습니다.\n사람들이 직접 경험할 수 있는, 눈을 반짝이게 하는 동적인 웹을 만들고 싶습니다.\n그때가 되면 이 끊기지 않는 선이 또 다른 저를 그리며, 새로운 챕터를 만들고 있겠죠?\n당신의 선도, 어디선가 계속 이어지고 있기를 바랍니다.\n다들 안녕히 계세요!!",
+        "textPosition": "top-right"
+    }
+]

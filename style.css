@@ -1,0 +1,277 @@
+@font-face {
+    font-family: 'NanumHandwriting';
+    src: url('나눔손글씨 사랑해 아들.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+body {
+    margin: 0;
+    background-color: #fff;
+    background-attachment: fixed;
+    color: #000;
+    font-family: 'NanumHandwriting', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.book-content {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    perspective: 52.083vw;
+    transform-style: preserve-3d;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.book-content[style*="opacity: 1"],
+.book-content[style*="opacity:1"] {
+    pointer-events: auto;
+}
+
+.page-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url('img/paper_texture2.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.page-layer.current {
+    z-index: 2;
+    position: relative;
+}
+
+.page-layer.next {
+    z-index: 1;
+}
+
+.section-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.image-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+.svg-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+}
+
+.text-container {
+    position: absolute;
+    font-size: 2vw;
+    font-family: 'NanumHandwriting', sans-serif;
+    color: #000;
+    white-space: pre-wrap;
+    line-height: 1.1;
+    z-index: 10;
+}
+
+.text-container.text-top-left {
+    top: 5%;
+    left: 5%;
+    right: auto;
+    bottom: auto;
+    transform: none;
+    text-align: left;
+}
+
+.text-container.text-top-right {
+    top: 5%;
+    right: 5%;
+    left: auto;
+    bottom: auto;
+    transform: none;
+    text-align: right;
+}
+
+.text-container.text-bottom-left {
+    bottom: 5%;
+    left: 5%;
+    right: auto;
+    top: auto;
+    transform: none;
+    text-align: left;
+}
+
+.text-container.text-bottom-right {
+    bottom: 5%;
+    right: 5%;
+    left: auto;
+    top: auto;
+    transform: none;
+    text-align: right;
+}
+
+.text-container.text-bottom-center {
+    bottom: 5%;
+    left: 50%;
+    right: auto;
+    top: auto;
+    transform: translateX(-50%);
+    text-align: center;
+}
+
+#scene-container {
+    position: sticky;
+    top: 0;
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+}
+
+#scroll-container {
+    height: 2000vh;
+    position: relative;
+}
+
+.description {
+    position: fixed;
+    bottom: 1.852vh;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 0.926vh 1.042vw;
+    border-radius: 0.521vw;
+    text-align: center;
+    z-index: 100;
+    transition: opacity 0.5s;
+    font-family: 'NanumHandwriting', sans-serif;
+}
+
+#scroll-guide {
+    position: fixed;
+    bottom: 8vh;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 1vw;
+    font-weight: 600;
+    color: #000;
+    animation: bounce 2s ease-in infinite;
+    font-family: 'NanumHandwriting', sans-serif;
+    transition: opacity 0.5s ease;
+    opacity: 1;
+}
+
+#scroll-guide p {
+    margin: 0;
+}
+
+#scroll-guide svg {
+    width: 1.04vw;
+    margin-top: 1vh;
+}
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(0.7vh); }
+}
+
+.page-turn-indicator {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 4.167vw;
+    height: 100%;
+    cursor: pointer;
+    z-index: 10002;
+    perspective: 52.083vw;
+    transform-style: preserve-3d;
+    pointer-events: auto;
+    display: block;
+}
+
+.page-turn-indicator::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(to left, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.05) 50%, transparent 100%);
+    transform-origin: right center;
+    transform: rotateY(-15deg);
+    transition: transform 0.3s ease;
+    pointer-events: none;
+}
+
+.page-turn-indicator:hover::before {
+    transform: rotateY(-25deg);
+}
+
+.page-turn-indicator::after {
+    content: '→';
+    position: absolute;
+    top: 50%;
+    right: 1.042vw;
+    transform: translateY(-50%) rotateY(-15deg);
+    font-size: 1.667vw;
+    color: rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.page-turn-indicator:hover::after {
+    transform: translateY(-50%) rotateY(-25deg) translateX(0.26vw);
+    opacity: 0.8;
+}
+
+.brush-drawing {
+    position: absolute;
+    bottom: 5%;
+    right: 5%;
+    z-index: 10001;
+    pointer-events: auto;
+    cursor: grab;
+    animation: fadeIn 0.5s ease-in;
+    display: block;
+    width: 15.625vw;
+    height: auto;
+    opacity: 1;
+}
+
+.brush-drawing:active {
+    cursor: grabbing;
+}
+
+.brush-drawing svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    opacity: 1;
+    filter: none;
+    image-rendering: crisp-edges;
+    image-rendering: -webkit-optimize-contrast;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(0.926vh);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<!-- HTML 문서 형식임을 브라우저에 알립니다. -->
+<html lang="ko">
+<!-- 문서의 기본 언어가 한국어임을 명시합니다. -->
+<head>
+    <!-- 문서의 메타데이터(설정 정보)를 담는 영역입니다. -->
+    <meta charset="UTF-8">
+    <!-- 문자 인코딩을 UTF-8로 설정하여 한글, 특수문자 등이 깨지지 않게 합니다. -->
+    <title>3D 책 스크롤 애니메이션 (다단계)</title>
+    <!-- 브라우저 탭에 표시될 문서의 제목입니다. -->
+    <style>
+        /* CSS(Cascading Style Sheets) 코드 영역입니다. HTML 요소의 디자인을 정의합니다. */
+        body {
+            /* body 태그, 즉 웹페이지 전체에 적용될 스타일입니다. */
+            margin: 0; /* body의 바깥쪽 여백을 모두 제거하여 화면 가장자리에 콘텐츠가 붙게 합니다. */
+            background-color: #111; /* 페이지 전체 배경색을 어두운 회색(#111)으로 설정합니다. */
+            color: #eee; /* 페이지의 기본 글자색을 밝은 회색(#eee)으로 설정합니다. */
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            /* 사용자의 운영체제(macOS, Windows 등)에 설치된 가장 보기 좋은 기본 폰트를 순서대로 적용합니다. */
+        }
+        #scene-container {
+            /* id가 'scene-container'인 요소에 적용될 스타일입니다. 3D 장면이 그려질 영역입니다. */
+            position: sticky; /* 스크롤을 하더라도 이 요소는 화면의 특정 위치에 '끈적하게' 붙어있게 됩니다. */
+            top: 0; /* 화면의 맨 위에 붙어있도록 위치를 지정합니다. */
+            width: 100%; /* 너비를 부모 요소(여기서는 body)의 100%로 채웁니다. */
+            height: 100vh; /* 높이를 vh(viewport height) 단위의 100%로 설정합니다. 즉, 보이는 화면의 높이를 꽉 채웁니다. */
+            overflow: hidden; /* 이 컨테이너의 크기를 벗어나는 자식 요소의 부분은 잘라내어 보이지 않게 합니다. */
+        }
+        #scroll-container {
+            /* id가 'scroll-container'인 요소에 적용될 스타일입니다. 스크롤 길이를 만들기 위한 영역입니다. */
+            height: 600vh; /* 높이를 화면 높이의 6배로 설정하여 스크롤 할 수 있는 긴 공간을 만듭니다. */
+            position: relative; /* 자식 요소가 위치를 잡을 때 이 요소를 기준으로 삼도록 합니다. */
+        }
+        .description {
+            /* class가 'description'인 요소에 적용될 스타일입니다. 하단의 설명 텍스트입니다. */
+            position: fixed; /* 스크롤과 관계없이 화면의 특정 위치에 고정됩니다. */
+            bottom: 20px; /* 화면 하단으로부터 20px 떨어진 곳에 위치합니다. */
+            left: 50%; /* 화면 왼쪽으로부터 50% 지점에 위치합니다. */
+            transform: translateX(-50%); /* CSS 변환 효과입니다. X축으로 자기 자신의 너비의 -50%만큼 이동하여 정확한 수평 중앙 정렬을 만듭니다. */
+            background: rgba(0, 0, 0, 0.7); /* 반투명한 검은색 배경을 설정합니다. (R, G, B, Alpha(투명도)) */
+            color: white; /* 글자색을 흰색으로 합니다. */
+            padding: 10px 20px; /* 요소의 내부 여백을 설정합니다. (상하 10px, 좌우 20px) */
+            border-radius: 10px; /* 요소의 모서리를 10px만큼 둥글게 깎습니다. */
+            text-align: center; /* 텍스트를 가운데 정렬합니다. */
+            z-index: 100; /* 요소가 쌓이는 순서를 결정합니다. 숫자가 높을수록 다른 요소들보다 위에 표시됩니다. */
+            transition: opacity 0.5s; /* 투명도(opacity) 속성이 변경될 때 0.5초에 걸쳐 부드럽게 전환되는 효과를 줍니다. */
+        }
+    </style>
+</head>
+<body>
+    <!-- 웹페이지에 실제로 표시될 콘텐츠 영역입니다. -->
+
+    <div id="scroll-container">
+        <!-- 스크롤 이벤트를 감지하고, 스크롤 길이를 제공하는 컨테이너입니다. -->
+        <div id="scene-container"></div>
+        <!-- 3D 그래픽이 그려질 <canvas> 요소가 이 안에 삽입될 것입니다. -->
+    </div>
+
+    <div id="description-text" class="description">스크롤을 내려 3D 책을 펼쳐보세요.</div>
+    <!-- 사용자에게 행동을 안내하는 설명 텍스트입니다. -->
+
+    <!-- Three.js 라이브러리를 불러옵니다. CDN(Content Delivery Network)을 통해 인터넷에서 직접 가져옵니다. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // JavaScript와 Three.js 코드가 시작되는 영역입니다.
+
+        // --- 1. Three.js 기본 3요소 설정 --- 
+        // Three.js로 3D 그래픽을 만들려면 Scene(장면), Camera(카메라), Renderer(렌더러) 3가지가 반드시 필요합니다.
+
+        // 3D 장면이 표시될 HTML 요소를 가져옵니다.
+        const container = document.getElementById('scene-container');
+        
+        // [Scene] 3D 공간을 생성합니다. 모든 3D 객체, 조명, 카메라를 담는 컨테이너입니다.
+        const scene = new THREE.Scene();
+        // Scene의 배경색을 설정합니다.
+        scene.background = new THREE.Color(0x111111);
+        
+        // [Camera] 3D 공간을 바라볼 시점을 결정합니다. PerspectiveCamera는 원근감을 표현하는 카메라입니다. (가까운 것은 크고, 먼 것은 작게 보임)
+        const camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+        // 카메라의 초기 Z축 위치를 설정합니다. (화면에서 우리 쪽으로 10만큼 떨어져서 안쪽을 바라봄)
+        camera.position.z = 10;
+
+        // [Renderer] 카메라가 본 장면을 실제로 화면에 그려주는 역할을 합니다. WebGL 기술을 사용합니다.
+        const renderer = new THREE.WebGLRenderer({ antialias: true }); // antialias: true는 객체의 가장자리를 부드럽게 처리합니다.
+        // 렌더러(그림판)의 크기를 3D 컨테이너의 크기와 동일하게 설정합니다.
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        // 렌더러가 생성한 <canvas> 요소를 HTML의 scene-container 안에 삽입합니다.
+        container.appendChild(renderer.domElement);
+        
+        // --- 조명 설정 --- 
+        // 3D 객체는 조명이 없으면 보이지 않습니다. 재질(Material)에 따라 조명에 다르게 반응합니다.
+        
+        // [AmbientLight] 장면 전체에 고르게 빛을 비추는 조명입니다. 그림자를 만들지 않고, 물체의 기본 색상과 텍스처가 보이도록 합니다.
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5); // 색상: 흰색, 강도: 0.5
+        scene.add(ambientLight); // 조명을 장면에 추가합니다.
+        
+        // [DirectionalLight] 특정 방향으로 빛을 비추는 조명입니다. 태양광과 비슷하며, 그림자와 하이라이트를 만들어 입체감을 줍니다.
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1); // 색상: 흰색, 강도: 1
+        directionalLight.position.set(5, 10, 7.5); // 빛의 위치를 설정합니다. 이 위치에서 원점(0,0,0)을 향해 빛을 쏩니다.
+        scene.add(directionalLight); // 조명을 장면에 추가합니다.
+
+        // --- 2. 3D 책 객체 생성 --- 
+        // [Group] 여러 3D 객체(Mesh)를 하나로 묶어 부모-자식 관계를 형성하고 함께 제어하기 위한 컨테이너입니다.
+        const book = new THREE.Group();
+        // 나중에 각 페이지를 개별적으로 제어하기 위해 페이지 그룹들을 담을 배열을 생성합니다.
+        const pages = [];
+        const numPages = 10; // 내부 페이지 수
+        const pageHeight = 4; // 페이지 높이
+        const pageWidth = 3; // 페이지 너비
+
+        // [TextureLoader] 이미지 파일을 불러와 3D 객체의 표면에 입힐 텍스처로 변환하는 도구입니다.
+        const textureLoader = new THREE.TextureLoader();
+        const coverTexture = textureLoader.load('book.png'); // 'book.png' 파일을 로드합니다.
+        const pageTexture = textureLoader.load('paper_texture.png'); // 'paper_texture.png' 파일을 로드합니다.
+
+        // [Material] 3D 객체의 표면 재질을 정의합니다. 색상, 질감, 투명도, 조명 반응 방식 등을 결정합니다.
+        // MeshStandardMaterial은 조명에 사실적으로 반응하는 표준 재질입니다. `map` 속성에 텍스처를 할당합니다.
+        const coverMaterial = new THREE.MeshStandardMaterial({ map: coverTexture, side: THREE.DoubleSide });
+        const pageMaterial = new THREE.MeshStandardMaterial({ map: pageTexture, side: THREE.DoubleSide });
+        // side: THREE.DoubleSide는 평면의 양면(앞/뒤)이 모두 렌더링되도록 설정합니다.
+
+        // 책 구조를 만듭니다. 이제 모든 페이지(앞/뒤 표지 포함)는 동일한 구조를 가진 '페이지 그룹'으로 만들어집니다.
+        // 이렇게 하면 모든 페이지가 동일한 중심축을 기준으로 회전하여 책 넘김 효과를 쉽게 구현할 수 있습니다.
+
+        // 앞면 표지와 내부 페이지들을 생성하는 반복문입니다.
+        for (let i = 0; i < numPages + 1; i++) {
+            // [Group] 각 페이지는 하나의 그룹으로 만들어집니다. 이 그룹의 원점(0,0,0)이 회전의 중심축이 됩니다.
+            const pageGroup = new THREE.Group();
+            // i가 0일 때는 앞면 표지(coverMaterial)를, 그 외에는 내부 페이지(pageMaterial) 재질을 사용합니다.
+            const material = (i === 0) ? coverMaterial : pageMaterial;
+            // [Geometry] 3D 객체의 형태(모양)를 정의합니다. PlaneGeometry는 평평한 사각형입니다.
+            const geometry = new THREE.PlaneGeometry(pageWidth, pageHeight);
+            // [Mesh] Geometry(형태)와 Material(재질)을 결합하여 실제 눈에 보이는 3D 객체를 만듭니다.
+            const page = new THREE.Mesh(geometry, material);
+            // 페이지 메쉬를 그룹의 원점(0,0,0)에서 x축으로 너비의 절반만큼 이동시킵니다.
+            // 이렇게 하면 그룹의 왼쪽 가장자리가 회전축이 됩니다. (책등 부분)
+            page.position.x = pageWidth / 2;
+            pageGroup.add(page); // 페이지 메쉬를 페이지 그룹에 추가합니다.
+            
+            // 페이지 그룹의 z 위치를 약간씩 뒤로 이동시켜, 페이지들이 겹치지 않고 쌓여있는 효과를 줍니다.
+            pageGroup.position.z = -i * 0.01;
+            
+            pages.push(pageGroup); // 생성된 페이지 그룹을 배열에 저장합니다.
+            book.add(pageGroup); // 페이지 그룹을 전체 'book' 그룹에 추가합니다.
+        }
+
+        // 뒷면 표지를 별도로 생성하여 가장 뒤에 배치합니다.
+        const backCoverGroup = new THREE.Group();
+        const backCover = new THREE.Mesh(new THREE.PlaneGeometry(pageWidth, pageHeight), coverMaterial);
+        backCover.position.x = pageWidth / 2;
+        backCoverGroup.add(backCover);
+        backCoverGroup.position.z = (numPages + 1) * 0.01; // 가장 뒤로 보내기 위해 z값을 양수로 설정
+        book.add(backCoverGroup);
+        pages.push(backCoverGroup); // 뒷면 표지도 제어를 위해 pages 배열에 추가합니다.
+
+        scene.add(book); // 완성된 책 그룹을 장면에 추가합니다.
+
+        // --- 3. 스크롤 애니메이션 로직 --- 
+        const descText = document.getElementById('description-text');
+        // [Vector3] x, y, z 세 개의 값으로 3D 공간의 한 점(좌표) 또는 방향을 나타내는 객체입니다.
+        // 카메라가 동적으로 바라볼 목표 지점을 저장하기 위해 생성합니다.
+        let lookAtTarget = new THREE.Vector3(0, 0, 0);
+
+        // 전체 스크롤 길이에 따른 애니메이션 단계(Phase)의 끝 지점을 비율로 정의합니다.
+        const PHASE_ORIENT_END = 0.25; // 1단계 (책 정렬)가 전체 스크롤의 25% 지점에서 끝납니다.
+        const PHASE_FLIP_END = 0.6;   // 2단계 (책 펼치기)가 60% 지점에서 끝납니다.
+
+        function updateBookAnimation() {
+            // 스크롤 이벤트가 발생할 때마다 실행되는 메인 애니메이션 함수입니다.
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            // 현재 스크롤 위치를 0(맨 위)과 1(맨 아래) 사이의 비율로 계산합니다. (최대 1을 넘지 않도록)
+            const scrollRatio = Math.min(window.scrollY / scrollableHeight, 1.0);
+
+            // [Lerp] Linear Interpolation(선형 보간)의 약자입니다. 두 값(start, end) 사이를 주어진 비율(ratio)에 따라 부드럽게 전환하는 값을 계산합니다.
+            // 예: lerp(0, 100, 0.5)는 50을 반환합니다. 애니메이션의 부드러운 전환에 핵심적인 역할을 합니다.
+            const lerp = (start, end, ratio) => start * (1 - ratio) + end * ratio;
+
+            // 스크롤이 내려가면 설명 텍스트가 서서히 사라지게 합니다.
+            descText.style.opacity = (1 - scrollRatio * 5);
+
+            if (scrollRatio <= PHASE_ORIENT_END) {
+                // --- PHASE 1: 닫힌 책을 정면으로 회전 --- (스크롤 0% ~ 25%)
+                // 현재 1단계 내에서의 진행률(0~1)을 계산합니다.
+                const phaseRatio = scrollRatio / PHASE_ORIENT_END;
+
+                // 모든 페이지를 닫힌 상태(y축 회전 0)로 고정합니다.
+                pages.forEach(pageGroup => { pageGroup.rotation.y = 0; });
+
+                // 책 전체 그룹을 y축으로 회전시켜 비스듬한 상태에서 정면을 보도록 만듭니다.
+                // -Math.PI / 2 는 -90도 입니다. 즉, -90도에서 0도로 부드럽게 회전합니다.
+                book.rotation.y = lerp(-Math.PI / 2, 0, phaseRatio);
+                // 카메라도 책의 움직임에 맞춰 위치를 조정합니다.
+                camera.position.z = lerp(8, 5, phaseRatio); // z축: 8 -> 5 (가까워짐)
+                camera.position.x = lerp(2, 0, phaseRatio); // x축: 2 -> 0 (중앙으로 이동)
+                
+                // 이 단계에서는 카메라가 항상 책의 원점(중심)을 바라보도록 설정합니다.
+                lookAtTarget.set(0, 0, 0);
+
+            } else if (scrollRatio <= PHASE_FLIP_END) {
+                // --- PHASE 2: 책을 중간까지 펼치기 --- (스크롤 25% ~ 60%)
+                // 현재 2단계 내에서의 진행률(0~1)을 계산합니다.
+                const phaseRatio = (scrollRatio - PHASE_ORIENT_END) / (PHASE_FLIP_END - PHASE_ORIENT_END);
+
+                // 1단계의 최종 상태(책 정면, 카메라 위치 고정)를 유지합니다.
+                book.rotation.y = 0;
+                camera.position.z = 5;
+                camera.position.x = 0;
+
+                // 책의 절반(앞표지 포함)만 회전시켜 중간까지 펼쳐진 모습을 만듭니다.
+                const middlePageIndex = Math.ceil(pages.length / 2);
+                pages.forEach((pageGroup, i) => {
+                    if (i < middlePageIndex) {
+                        // 페이지가 순서대로 '촤르륵' 넘어가는 효과를 주기 위해 각 페이지마다 시작 타이밍을 약간씩 늦춥니다.
+                        const pagePhaseRatio = Math.min(1, Math.max(0, phaseRatio * 1.5 - (i * 0.05)));
+                        // 각 페이지를 0도에서 -180도(-Math.PI)까지 회전시킵니다.
+                        pageGroup.rotation.y = lerp(0, -Math.PI, pagePhaseRatio);
+                    } else {
+                        pageGroup.rotation.y = 0; // 오른쪽 페이지들은 그대로 닫혀있습니다.
+                    }
+                });
+                // 카메라는 여전히 책의 중심을 바라봅니다.
+                lookAtTarget.set(0, 0, 0);
+
+            } else {
+                // --- PHASE 3: 중간 페이지로 확대 --- (스크롤 60% ~ 100%)
+                // 현재 3단계 내에서의 진행률(0~1)을 계산합니다.
+                const phaseRatio = (scrollRatio - PHASE_FLIP_END) / (1 - PHASE_FLIP_END);
+
+                // 2단계의 최종 상태(중간까지 펼쳐진 상태)를 고정합니다.
+                const middlePageIndex = Math.ceil(pages.length / 2);
+                pages.forEach((pageGroup, i) => {
+                    if (i < middlePageIndex) { pageGroup.rotation.y = -Math.PI; }
+                });
+
+                // 확대할 목표 페이지(오른쪽 면의 가장 첫 페이지)를 설정합니다.
+                const targetPage = pages[middlePageIndex];
+                // 목표 지점의 3D 좌표를 저장할 Vector3 객체를 생성합니다.
+                const targetPosition = new THREE.Vector3();
+                // [getWorldPosition] 그룹 내에서의 상대 좌표가 아닌, 3D 공간 전체에서의 절대 좌표를 계산하여 targetPosition에 저장합니다.
+                targetPage.children[0].getWorldPosition(targetPosition);
+
+                // 카메라의 시작 위치(2단계 끝)와 최종 위치(페이지 바로 앞)를 정의합니다.
+                const startCamPos = new THREE.Vector3(0, 0, 5);
+                const endCamPos = new THREE.Vector3(targetPosition.x, targetPosition.y, targetPosition.z + 0.5);
+                // [lerpVectors] 두 Vector3 사이를 선형 보간하여 카메라 위치를 부드럽게 이동시킵니다.
+                camera.position.lerpVectors(startCamPos, endCamPos, phaseRatio);
+
+                // 카메라가 바라볼 지점도 책의 중심에서 페이지의 중심으로 부드럽게 이동시킵니다.
+                const startLookAt = new THREE.Vector3(0, 0, 0);
+                lookAtTarget.lerpVectors(startLookAt, targetPosition, phaseRatio);
+            }
+        }
+
+        // 'scroll' 이벤트 리스너: 사용자가 스크롤할 때마다 updateBookAnimation 함수를 호출합니다.
+        window.addEventListener('scroll', updateBookAnimation);
+
+        // --- 4. 렌더링 루프 및 창 크기 조절 ---
+        function animate() {
+            // [requestAnimationFrame] 브라우저에게 다음 프레임을 그릴 준비가 되면 이 함수를 다시 호출해달라고 요청합니다.
+            // 이를 통해 모니터 주사율에 맞춰 부드러운 애니메이션 루프(무한 반복)가 만들어집니다.
+            requestAnimationFrame(animate);
+            // [lookAt] 카메라가 'lookAtTarget' 벡터가 가리키는 지점을 항상 바라보게 합니다.
+            camera.lookAt(lookAtTarget);
+            // 렌더러가 카메라의 시점에서 장면을 실제로 그립니다.
+            renderer.render(scene, camera);
+        }
+
+        // 'resize' 이벤트 리스너: 브라우저 창 크기가 변경될 때 실행됩니다.
+        window.addEventListener('resize', () => {
+            // 카메라의 종횡비(aspect)를 변경된 창 크기에 맞게 업데이트합니다.
+            camera.aspect = container.clientWidth / container.clientHeight;
+            // [updateProjectionMatrix] 변경된 카메라 속성(종횡비 등)을 적용하기 위해 반드시 호출해야 합니다.
+            camera.updateProjectionMatrix();
+            // 렌더러의 크기도 새 창 크기에 맞게 조절합니다.
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        });
+
+        // 페이지가 처음 로드될 때, 현재 스크롤 위치(0)에 맞는 초기 상태를 설정합니다.
+        updateBookAnimation();
+        // 애니메이션 렌더링 루프를 시작합니다.
+        animate();
+
+    </script>
+</body>
+</html>
+
