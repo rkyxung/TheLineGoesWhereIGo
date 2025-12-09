@@ -1097,11 +1097,14 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
         fadeOutRect.setAttribute('height', '100%');
         fadeOutRect.setAttribute('fill', 'black'); // 검은색 = 완전히 지워짐
         fadeOutRect.setAttribute('opacity', '0');
-        fadeOutRect.style.transition = 'opacity 3s ease-out'; // 더 천천히 페이드아웃
+        fadeOutRect.style.transition = 'opacity 1.5s ease-out'; // 더 천천히 페이드아웃
         mask.appendChild(fadeOutRect);
         
+        // transition이 적용되도록 브라우저에 스타일 적용 시간을 줌
         requestAnimationFrame(() => {
-            fadeOutRect.setAttribute('opacity', '1'); // 나머지 부분 완전히 지워짐
+            requestAnimationFrame(() => {
+                fadeOutRect.setAttribute('opacity', '1'); // 나머지 부분 완전히 지워짐
+            });
         });
     };
     
