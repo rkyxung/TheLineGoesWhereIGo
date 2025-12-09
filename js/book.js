@@ -307,7 +307,7 @@ function updateBookAnimation() {
                 }
             }
         });
-        
+
     } else {
         // [PHASE 4] 책 페이드 아웃 + .book-content 페이드 인
         const phaseRatio = (scrollRatio - PHASE_ZOOM_END) / (1 - PHASE_ZOOM_END);

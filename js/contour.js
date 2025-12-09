@@ -86,7 +86,8 @@ function getCurrentSectionProgress(sectionIndex) {
 
 // 전체 스크롤 높이 동적 계산
 function updateScrollHeight() {
-    const totalSections = sections.length;
+    // sections가 아직 로드되지 않았으면 기본값 사용
+    const totalSections = sections && sections.length > 0 ? sections.length : 1;
     const BOOK_ANIMATION_HEIGHT = 600; // 책 애니메이션 구간 (600vh) - book.js와 동일
     const bookAnimationHeight = window.innerHeight * (BOOK_ANIMATION_HEIGHT / 100);
     const sectionsHeight = window.innerHeight * (SECTION_SCROLL_RANGE / 100) * totalSections;
@@ -95,6 +96,9 @@ function updateScrollHeight() {
     const scrollContainer = document.getElementById('scroll-container');
     if (scrollContainer) {
         scrollContainer.style.height = `${totalHeight}px`;
+        console.log('스크롤 컨테이너 높이 설정:', totalHeight, 'px (섹션 수:', totalSections, ')');
+    } else {
+        console.error('scroll-container를 찾을 수 없음');
     }
 }
 
@@ -103,13 +107,17 @@ function initContourDrawing() {
     // 스크롤 높이 업데이트
     updateScrollHeight();
     
-    // 첫 번째 섹션 시작
+    // 첫 번째 섹션 시작 (스크롤 위치와 관계없이 항상 첫 번째 섹션 로드)
     const activeIndex = getActiveSectionIndex();
     console.log('활성 섹션 인덱스:', activeIndex, '현재 스크롤:', window.scrollY);
+    
+    // 활성 섹션이 없거나 첫 번째 섹션 이전이면 첫 번째 섹션 강제 로드
     if (activeIndex >= 0) {
         loadSection(activeIndex);
     } else {
-        console.log('활성 섹션이 없음. 스크롤 위치 확인 필요');
+        // 스크롤 위치가 첫 번째 섹션 이전이면 첫 번째 섹션 로드
+        console.log('활성 섹션이 없음. 첫 번째 섹션 강제 로드');
+        loadSection(0);
     }
 }
 
@@ -217,65 +225,138 @@ function loadSection(index, isNextPage = false) {
         }
         
         const svgContainer = pageLayer.querySelector('.svg-container');
-        svgContainer.style.display = 'flex';
-        svgContainer.style.flexWrap = 'wrap';
-        svgContainer.style.justifyContent = 'center';
-        svgContainer.style.alignItems = 'center';
-        svgContainer.style.gap = '1.042vw';
         svgContainer.style.position = 'absolute';
-        svgContainer.style.top = '50%';
-        svgContainer.style.left = '50%';
-        svgContainer.style.transform = 'translate(-50%, -50%)';
+        svgContainer.style.top = '0';
+        svgContainer.style.left = '0';
+        svgContainer.style.width = '100%';
+        svgContainer.style.height = '100%';
+        svgContainer.style.overflow = 'visible'; // 넘치는 부분도 보이도록
         
         // 이미지 컨테이너 설정
         const imageContainer = pageLayer.querySelector('.image-container');
         if (imageContainer && imgPathsToLoad.length > 0) {
-            imageContainer.style.display = 'flex';
-            imageContainer.style.flexWrap = 'wrap';
-            imageContainer.style.justifyContent = 'center';
-            imageContainer.style.alignItems = 'center';
-            imageContainer.style.gap = '1.042vw';
             imageContainer.style.position = 'absolute';
-            imageContainer.style.top = '50%';
-            imageContainer.style.left = '50%';
-            imageContainer.style.transform = 'translate(-50%, -50%)';
+            imageContainer.style.top = '0';
+            imageContainer.style.left = '0';
+            imageContainer.style.width = '100%';
+            imageContainer.style.height = '100%';
             imageContainer.style.zIndex = '1';
+            imageContainer.style.overflow = 'visible'; // 넘치는 부분도 보이도록
             
+            console.log(`[${section.id}] 로드할 이미지 개수: ${imgPathsToLoad.length}`, imgPathsToLoad);
             imgPathsToLoad.forEach((imgPath, i) => {
                 const imgWrapper = document.createElement('div');
-                imgWrapper.style.width = '45%';
+                imgWrapper.style.position = 'absolute'; // 절대 위치로 겹치게 배치
                 const img = document.createElement('img');
                 img.src = imgPath;
-                img.style.width = '100%';
-                img.style.height = 'auto';
-                img.style.objectFit = 'contain';
                 img.style.opacity = '0';
                 img.style.pointerEvents = 'none';
+                img.onload = () => {
+                    // 이미지의 실제 크기 가져오기
+                    const naturalWidth = img.naturalWidth;
+                    const naturalHeight = img.naturalHeight;
+                    const aspectRatio = naturalWidth / naturalHeight;
+                    
+                    // 컨테이너 크기 기준 (화면 너비의 약 40%를 기준으로, 비율 유지)
+                    const baseWidth = window.innerWidth * 0.4; // 화면 너비의 40%
+                    const containerWidth = baseWidth;
+                    const containerHeight = containerWidth / aspectRatio;
+                    
+                    // 컨테이너 크기 설정 (각 이미지의 실제 비율에 맞춤)
+                    imgWrapper.style.width = `${containerWidth}px`;
+                    imgWrapper.style.height = `${containerHeight}px`;
+                    
+                    // 겹치게 배치하기 위해 약간씩 오프셋 적용
+                    const offsetX = (i % 2) * (containerWidth * 0.1); // 좌우 약간씩 오프셋
+                    const offsetY = Math.floor(i / 2) * (containerHeight * 0.1); // 상하 약간씩 오프셋
+                    const centerX = (window.innerWidth - containerWidth) / 2;
+                    const centerY = (window.innerHeight - containerHeight) / 2;
+                    
+                    imgWrapper.style.left = `${centerX + offsetX}px`;
+                    imgWrapper.style.top = `${centerY + offsetY}px`;
+                    
+                    // 이미지가 컨테이너를 꽉 채우도록
+                    img.style.width = '100%';
+                    img.style.height = '100%';
+                    img.style.objectFit = 'contain';
+                    
+                    console.log(`[${section.id}] 이미지 ${i + 1} 로드 완료: ${imgPath}, 크기: ${naturalWidth}x${naturalHeight}, 컨테이너: ${containerWidth.toFixed(1)}x${containerHeight.toFixed(1)}`);
+                };
+                img.onerror = () => {
+                    console.error(`[${section.id}] 이미지 ${i + 1} 로드 실패:`, imgPath);
+                };
                 imgWrapper.appendChild(img);
                 imageContainer.appendChild(imgWrapper);
             });
+            console.log(`[${section.id}] 이미지 컨테이너 자식 수:`, imageContainer.children.length);
         }
         
         // 모든 SVG 로드
+        console.log(`[${section.id}] 로드할 SVG 개수: ${svgPathsToLoad.length}`, svgPathsToLoad);
         Promise.all(svgPathsToLoad.map(path => 
             fetch(path).then(response => response.text())
         )).then(svgTexts => {
+            console.log(`[${section.id}] SVG 로드 완료, 개수: ${svgTexts.length}`);
             svgTexts.forEach((svgText, i) => {
                 const svgWrapper = document.createElement('div');
-                svgWrapper.style.width = '45%';
+                svgWrapper.style.position = 'absolute'; // 절대 위치로 겹치게 배치
                 svgWrapper.innerHTML = svgText;
                 const svg = svgWrapper.querySelector('svg');
                 if (svg) {
+                    // SVG의 실제 크기 가져오기 (viewBox 또는 width/height 속성)
+                    let svgWidth = svg.getAttribute('width');
+                    let svgHeight = svg.getAttribute('height');
+                    const viewBox = svg.getAttribute('viewBox');
+                    
+                    // viewBox가 있으면 그것을 사용
+                    if (viewBox) {
+                        const viewBoxValues = viewBox.split(/\s+/);
+                        if (viewBoxValues.length >= 4) {
+                            svgWidth = parseFloat(viewBoxValues[2]);
+                            svgHeight = parseFloat(viewBoxValues[3]);
+                        }
+                    }
+                    
+                    // 숫자가 아니면 기본값 사용
+                    svgWidth = parseFloat(svgWidth) || 1000;
+                    svgHeight = parseFloat(svgHeight) || 1000;
+                    
+                    const aspectRatio = svgWidth / svgHeight;
+                    
+                    // 컨테이너 크기 기준 (화면 너비의 약 40%를 기준으로, 비율 유지)
+                    const baseWidth = window.innerWidth * 0.4; // 화면 너비의 40%
+                    const containerWidth = baseWidth;
+                    const containerHeight = containerWidth / aspectRatio;
+                    
+                    // 컨테이너 크기 설정 (각 SVG의 실제 비율에 맞춤)
+                    svgWrapper.style.width = `${containerWidth}px`;
+                    svgWrapper.style.height = `${containerHeight}px`;
+                    
+                    // 겹치게 배치하기 위해 약간씩 오프셋 적용 (이미지와 동일한 위치)
+                    const offsetX = (i % 2) * (containerWidth * 0.1); // 좌우 약간씩 오프셋
+                    const offsetY = Math.floor(i / 2) * (containerHeight * 0.1); // 상하 약간씩 오프셋
+                    const centerX = (window.innerWidth - containerWidth) / 2;
+                    const centerY = (window.innerHeight - containerHeight) / 2;
+                    
+                    svgWrapper.style.left = `${centerX + offsetX}px`;
+                    svgWrapper.style.top = `${centerY + offsetY}px`;
+                    
+                    // SVG가 컨테이너를 꽉 채우도록
                     svg.style.width = '100%';
-                    svg.style.height = 'auto';
+                    svg.style.height = '100%';
                     svg.style.zIndex = '2';
+                    
                     // SVG에 마스크 ID 추가
                     if (!isNextPage && imgPathsToLoad[i]) {
                         svg.setAttribute('data-mask-id', `mask-${section.id}-${i}`);
                     }
+                    console.log(`[${section.id}] SVG ${i + 1} 추가됨: ${svgPathsToLoad[i]}, 크기: ${svgWidth}x${svgHeight}, 컨테이너: ${containerWidth.toFixed(1)}x${containerHeight.toFixed(1)}`);
+                } else {
+                    console.error(`[${section.id}] SVG ${i + 1} 파싱 실패:`, svgPathsToLoad[i]);
                 }
                 svgContainer.appendChild(svgWrapper);
             });
+            console.log(`[${section.id}] SVG 컨테이너 자식 수:`, svgContainer.children.length);
             
             // Path 초기화 (모든 SVG의 path 수집)
             // 다음 페이지가 아닐 때만 svgPaths에 추가
@@ -338,7 +419,7 @@ function loadSection(index, isNextPage = false) {
             if (imageContainer && section.imgPath) {
                 const img = document.createElement('img');
                 img.src = section.imgPath;
-                img.style.width = '60%';
+                img.style.width = 'auto';
                 img.style.height = '60%';
                 img.style.objectFit = 'contain';
                 img.style.position = 'absolute';
@@ -364,7 +445,7 @@ function loadSection(index, isNextPage = false) {
             if (!svg) return;
             
             // SVG 스타일 설정
-            svg.style.width = '60%';
+            svg.style.width = 'auto';
             svg.style.height = '60%';
             svg.style.display = 'block';
             svg.style.margin = '0 auto';
@@ -847,63 +928,165 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
     let brushOffsetX = 0;
     let brushOffsetY = 0;
     
-    // 지워진 영역 추적을 위한 Canvas
-    const eraseCanvas = document.createElement('canvas');
-    eraseCanvas.style.position = 'absolute';
-    eraseCanvas.style.top = '0';
-    eraseCanvas.style.left = '0';
-    eraseCanvas.style.width = '100%';
-    eraseCanvas.style.height = '100%';
-    eraseCanvas.style.pointerEvents = 'none';
-    eraseCanvas.style.zIndex = '2';
-    eraseCanvas.style.opacity = '0';
+    // 실제 이미지 요소 찾기
+    const actualImgs = Array.from(imgs);
+    if (actualImgs.length === 0) return;
     
-    const updateEraseCanvasSize = () => {
-        const rect = svgContainer.getBoundingClientRect();
-        eraseCanvas.width = rect.width;
-        eraseCanvas.height = rect.height;
+    // 각 이미지마다 별도의 Canvas 생성 (각 이미지 크기에 정확히 맞춤)
+    const eraseCanvases = []; // 각 이미지별 Canvas 배열
+    const eraseCtxs = []; // 각 Canvas의 context 배열
+    
+    // 각 이미지에 대한 Canvas 생성 함수
+    const createCanvasForImage = (img, index) => {
+        const svgRect = svgContainer.getBoundingClientRect();
+        const imgRect = img.getBoundingClientRect();
+        const relativeLeft = imgRect.left - svgRect.left;
+        const relativeTop = imgRect.top - svgRect.top;
+        
+        // 각 이미지 크기에 정확히 맞는 Canvas 생성
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.floor(imgRect.width);
+        canvas.height = Math.floor(imgRect.height);
+        
+        canvas.style.position = 'absolute';
+        canvas.style.left = `${relativeLeft}px`;
+        canvas.style.top = `${relativeTop}px`;
+        canvas.style.width = `${imgRect.width}px`;
+        canvas.style.height = `${imgRect.height}px`;
+        canvas.style.pointerEvents = 'none';
+        canvas.style.zIndex = '2';
+        canvas.style.opacity = '0';
+        canvas.setAttribute('data-img-index', index); // 이미지 인덱스 저장
+        
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        svgContainer.appendChild(canvas);
+        eraseCanvases.push(canvas);
+        eraseCtxs.push(ctx);
+        
+        console.log(`[이미지 ${index + 1}] Canvas 생성: ${imgRect.width.toFixed(1)} x ${imgRect.height.toFixed(1)}`);
     };
     
-    updateEraseCanvasSize();
-    svgContainer.appendChild(eraseCanvas);
+    // 이미지가 모두 로드된 후 각 이미지마다 Canvas 생성
+    let imagesLoaded = 0;
+    const totalImages = actualImgs.length;
     
-    const eraseCtx = eraseCanvas.getContext('2d');
-    // Canvas 초기화: 흰색으로 채움 (지워지지 않은 상태)
-    eraseCtx.fillStyle = 'white';
-    eraseCtx.fillRect(0, 0, eraseCanvas.width, eraseCanvas.height);
+    if (totalImages === 0) return;
+    
+    const checkAndCreateCanvases = () => {
+        imagesLoaded++;
+        if (imagesLoaded === totalImages) {
+            // 모든 이미지가 로드된 후 약간의 지연을 두고 각 이미지마다 Canvas 생성
+            setTimeout(() => {
+                actualImgs.forEach((img, index) => {
+                    createCanvasForImage(img, index);
+                });
+                updateTotalArea(); // 총 면적 계산
+            }, 100);
+        }
+    };
+    
+    // 이미지 로드 이벤트 리스너 추가
+    actualImgs.forEach(img => {
+        if (img.complete && img.naturalWidth > 0) {
+            checkAndCreateCanvases();
+        } else {
+            img.addEventListener('load', checkAndCreateCanvases);
+            img.addEventListener('error', checkAndCreateCanvases);
+        }
+    });
     
     // 지워진 영역 추적을 위한 변수
     let totalErasedArea = 0;
     let totalArea = 0;
     
-    // 전체 영역 계산
+    // 전체 영역 계산 (모든 이미지의 총 면적 기준)
     const updateTotalArea = () => {
-        totalArea = eraseCanvas.width * eraseCanvas.height;
+        totalArea = 0;
+        
+        actualImgs.forEach(img => {
+            const imgRect = img.getBoundingClientRect();
+            totalArea += imgRect.width * imgRect.height;
+        });
+        
+        console.log(`[페이지별] 실제 이미지 총 면적: ${totalArea.toFixed(0)} px² (이미지 수: ${actualImgs.length})`);
     };
-    updateTotalArea();
     
-    // 지워진 영역 비율 계산 함수 (Canvas 이미지 데이터 기반)
-    const getErasedRatio = () => {
-        if (totalArea === 0) return 0;
+    // SVG 컨테이너 좌표를 해당 이미지의 Canvas 좌표로 변환하는 함수
+    const toCanvasCoords = (svgX, svgY) => {
+        const svgRect = svgContainer.getBoundingClientRect();
         
-        const imageData = eraseCtx.getImageData(0, 0, eraseCanvas.width, eraseCanvas.height);
-        const data = imageData.data;
-        let erasedPixels = 0;
-        let sampledPixels = 0;
-        
-        // 샘플링하여 성능 향상 (100픽셀마다 확인)
-        for (let i = 0; i < data.length; i += 400) { // 100픽셀마다 샘플링 (RGBA = 4바이트씩)
-            const alpha = data[i + 3];
-            sampledPixels++;
-            if (alpha < 255) { // 지워진 픽셀 (투명도가 낮음)
-                erasedPixels++;
+        // 어떤 이미지 영역에 있는지 찾기
+        for (let i = 0; i < actualImgs.length; i++) {
+            const img = actualImgs[i];
+            const imgRect = img.getBoundingClientRect();
+            const relativeLeft = imgRect.left - svgRect.left;
+            const relativeTop = imgRect.top - svgRect.top;
+            const relativeRight = relativeLeft + imgRect.width;
+            const relativeBottom = relativeTop + imgRect.height;
+            
+            // 해당 이미지 영역 안에 있으면 해당 Canvas 좌표로 변환
+            if (svgX >= relativeLeft && svgX <= relativeRight &&
+                svgY >= relativeTop && svgY <= relativeBottom) {
+                return {
+                    canvasIndex: i,
+                    x: svgX - relativeLeft,
+                    y: svgY - relativeTop
+                };
             }
         }
         
-        return sampledPixels > 0 ? erasedPixels / sampledPixels : 0;
+        // 어떤 이미지 영역에도 없으면 첫 번째 Canvas 기준으로 반환
+        if (actualImgs.length > 0) {
+            const imgRect = actualImgs[0].getBoundingClientRect();
+            const relativeLeft = imgRect.left - svgRect.left;
+            const relativeTop = imgRect.top - svgRect.top;
+            return {
+                canvasIndex: 0,
+                x: svgX - relativeLeft,
+                y: svgY - relativeTop
+            };
+        }
+        
+        return { canvasIndex: -1, x: 0, y: 0 };
     };
     
-    // 페이드아웃 애니메이션
+    // 지워진 영역 비율 계산 함수 (모든 Canvas 합산)
+    const getErasedRatio = () => {
+        if (totalArea === 0 || eraseCanvases.length === 0) {
+            return 0;
+        }
+        
+        let totalErasedPixels = 0;
+        let totalImagePixels = 0;
+        
+        // 각 Canvas를 확인하여 지워진 픽셀 합산
+        eraseCanvases.forEach((canvas, index) => {
+            if (canvas.width === 0 || canvas.height === 0) return;
+            
+            const ctx = eraseCtxs[index];
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            // 샘플링하여 성능 향상
+            for (let i = 0; i < data.length; i += 16) { // RGBA = 4바이트씩, 4픽셀마다 샘플링
+                const alpha = data[i + 3];
+                totalImagePixels++;
+                // 완전히 투명한 픽셀 (지워진 픽셀)
+                if (alpha < 10) {
+                    totalErasedPixels++;
+                }
+            }
+        });
+        
+        const ratio = totalImagePixels > 0 ? totalErasedPixels / totalImagePixels : 0;
+        console.log(`[페이지별 이미지 기준] 지워진 픽셀: ${totalErasedPixels}/${totalImagePixels}, 비율: ${(ratio * 100).toFixed(1)}%`);
+        return ratio;
+    };
+    
+    // 페이드아웃 애니메이션 (나머지 부분 스르륵 지워짐)
     let fadeOutAnimation = null;
     const startFadeOut = () => {
         if (fadeOutAnimation) return;
@@ -912,13 +1095,13 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
         const fadeOutRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         fadeOutRect.setAttribute('width', '100%');
         fadeOutRect.setAttribute('height', '100%');
-        fadeOutRect.setAttribute('fill', 'black');
+        fadeOutRect.setAttribute('fill', 'black'); // 검은색 = 완전히 지워짐
         fadeOutRect.setAttribute('opacity', '0');
-        fadeOutRect.style.transition = 'opacity 1s ease-out';
+        fadeOutRect.style.transition = 'opacity 3s ease-out'; // 더 천천히 페이드아웃
         mask.appendChild(fadeOutRect);
         
         requestAnimationFrame(() => {
-            fadeOutRect.setAttribute('opacity', '1');
+            fadeOutRect.setAttribute('opacity', '1'); // 나머지 부분 완전히 지워짐
         });
     };
     
@@ -984,11 +1167,25 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
                         const circleX = lastX + stepX * i;
                         const circleY = lastY + stepY * i;
                         
-                        // Canvas에 지워진 영역 기록
-                        eraseCtx.globalCompositeOperation = 'destination-out';
-                        eraseCtx.beginPath();
-                        eraseCtx.arc(circleX, circleY, brushRadius, 0, Math.PI * 2);
-                        eraseCtx.fill();
+                        // Canvas 좌표로 변환
+                        const canvasCoords = toCanvasCoords(circleX, circleY);
+                        
+                        // 해당 이미지의 Canvas에 그리기
+                        if (canvasCoords.canvasIndex >= 0 && canvasCoords.canvasIndex < eraseCanvases.length) {
+                            const targetCanvas = eraseCanvases[canvasCoords.canvasIndex];
+                            const targetCtx = eraseCtxs[canvasCoords.canvasIndex];
+                            
+                            // Canvas 영역 내에 있는지 확인
+                            if (canvasCoords.x >= -brushRadius && canvasCoords.x < targetCanvas.width + brushRadius &&
+                                canvasCoords.y >= -brushRadius && canvasCoords.y < targetCanvas.height + brushRadius) {
+                                // 해당 Canvas에 지워진 영역 기록 (완전히 투명하게)
+                                targetCtx.globalCompositeOperation = 'destination-out';
+                                targetCtx.globalAlpha = 1.0;
+                                targetCtx.beginPath();
+                                targetCtx.arc(canvasCoords.x, canvasCoords.y, brushRadius, 0, Math.PI * 2);
+                                targetCtx.fill();
+                            }
+                        }
                         
                         // 마스크에 검은색 원 추가 (fill-opacity로 60%만 지워지게)
                         // fill-opacity 0.6 = 60% 지워짐 (40% 보임)
@@ -1004,18 +1201,32 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
                     // 지워진 비율 확인
                     const erasedRatio = getErasedRatio();
                     console.log('지워진 비율:', (erasedRatio * 100).toFixed(1) + '%');
-                    if (erasedRatio >= 0.7 && !fadeOutAnimation) {
-                        console.log('페이드아웃 시작');
+                    if (erasedRatio >= 0.6 && !fadeOutAnimation) {
+                        console.log('페이드아웃 시작 (60% 도달)');
                         startFadeOut();
                     }
                 }
             } else {
                 // 첫 번째 점일 때는 원 하나만 추가
-                // Canvas에 지워진 영역 기록
-                eraseCtx.globalCompositeOperation = 'destination-out';
-                eraseCtx.beginPath();
-                eraseCtx.arc(x, y, brushRadius, 0, Math.PI * 2);
-                eraseCtx.fill();
+                // Canvas 좌표로 변환
+                const canvasCoords = toCanvasCoords(x, y);
+                
+                // 해당 이미지의 Canvas에 그리기
+                if (canvasCoords.canvasIndex >= 0 && canvasCoords.canvasIndex < eraseCanvases.length) {
+                    const targetCanvas = eraseCanvases[canvasCoords.canvasIndex];
+                    const targetCtx = eraseCtxs[canvasCoords.canvasIndex];
+                    
+                    // Canvas 영역 내에 있는지 확인
+                    if (canvasCoords.x >= -brushRadius && canvasCoords.x < targetCanvas.width + brushRadius &&
+                        canvasCoords.y >= -brushRadius && canvasCoords.y < targetCanvas.height + brushRadius) {
+                        // 해당 Canvas에 지워진 영역 기록 (완전히 투명하게)
+                        targetCtx.globalCompositeOperation = 'destination-out';
+                        targetCtx.globalAlpha = 1.0;
+                        targetCtx.beginPath();
+                        targetCtx.arc(canvasCoords.x, canvasCoords.y, brushRadius, 0, Math.PI * 2);
+                        targetCtx.fill();
+                    }
+                }
                 
                 // 마스크에 회색 원 추가 (60%만 지워지게)
                 // SVG 마스크에서 회색 = 부분적으로 보임
@@ -1031,8 +1242,8 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
                 // 지워진 비율 확인
                 const erasedRatio = getErasedRatio();
                 console.log('지워진 비율:', (erasedRatio * 100).toFixed(1) + '%');
-                if (erasedRatio >= 0.7 && !fadeOutAnimation) {
-                    console.log('페이드아웃 시작');
+                if (erasedRatio >= 0.6 && !fadeOutAnimation) {
+                    console.log('페이드아웃 시작 (60% 도달)');
                     startFadeOut();
                 }
             }
@@ -1114,11 +1325,25 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
                         const circleX = lastX + stepX * i;
                         const circleY = lastY + stepY * i;
                         
-                        // Canvas에 지워진 영역 기록
-                        eraseCtx.globalCompositeOperation = 'destination-out';
-                        eraseCtx.beginPath();
-                        eraseCtx.arc(circleX, circleY, brushRadius, 0, Math.PI * 2);
-                        eraseCtx.fill();
+                        // Canvas 좌표로 변환
+                        const canvasCoords = toCanvasCoords(circleX, circleY);
+                        
+                        // 해당 이미지의 Canvas에 그리기
+                        if (canvasCoords.canvasIndex >= 0 && canvasCoords.canvasIndex < eraseCanvases.length) {
+                            const targetCanvas = eraseCanvases[canvasCoords.canvasIndex];
+                            const targetCtx = eraseCtxs[canvasCoords.canvasIndex];
+                            
+                            // Canvas 영역 내에 있는지 확인
+                            if (canvasCoords.x >= -brushRadius && canvasCoords.x < targetCanvas.width + brushRadius &&
+                                canvasCoords.y >= -brushRadius && canvasCoords.y < targetCanvas.height + brushRadius) {
+                                // 해당 Canvas에 지워진 영역 기록 (완전히 투명하게)
+                                targetCtx.globalCompositeOperation = 'destination-out';
+                                targetCtx.globalAlpha = 1.0;
+                                targetCtx.beginPath();
+                                targetCtx.arc(canvasCoords.x, canvasCoords.y, brushRadius, 0, Math.PI * 2);
+                                targetCtx.fill();
+                            }
+                        }
                         
                         // 마스크에 검은색 원 추가 (fill-opacity로 60%만 지워지게)
                         // fill-opacity 0.6 = 60% 지워짐 (40% 보임)
@@ -1134,18 +1359,32 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
                     // 지워진 비율 확인
                     const erasedRatio = getErasedRatio();
                     console.log('지워진 비율:', (erasedRatio * 100).toFixed(1) + '%');
-                    if (erasedRatio >= 0.7 && !fadeOutAnimation) {
-                        console.log('페이드아웃 시작');
+                    if (erasedRatio >= 0.6 && !fadeOutAnimation) {
+                        console.log('페이드아웃 시작 (60% 도달)');
                         startFadeOut();
                     }
                 }
             } else {
                 // 첫 번째 점일 때는 원 하나만 추가
-                // Canvas에 지워진 영역 기록
-                eraseCtx.globalCompositeOperation = 'destination-out';
-                eraseCtx.beginPath();
-                eraseCtx.arc(x, y, brushRadius, 0, Math.PI * 2);
-                eraseCtx.fill();
+                // Canvas 좌표로 변환
+                const canvasCoords = toCanvasCoords(x, y);
+                
+                // 해당 이미지의 Canvas에 그리기
+                if (canvasCoords.canvasIndex >= 0 && canvasCoords.canvasIndex < eraseCanvases.length) {
+                    const targetCanvas = eraseCanvases[canvasCoords.canvasIndex];
+                    const targetCtx = eraseCtxs[canvasCoords.canvasIndex];
+                    
+                    // Canvas 영역 내에 있는지 확인
+                    if (canvasCoords.x >= -brushRadius && canvasCoords.x < targetCanvas.width + brushRadius &&
+                        canvasCoords.y >= -brushRadius && canvasCoords.y < targetCanvas.height + brushRadius) {
+                        // 해당 Canvas에 지워진 영역 기록 (완전히 투명하게)
+                        targetCtx.globalCompositeOperation = 'destination-out';
+                        targetCtx.globalAlpha = 1.0;
+                        targetCtx.beginPath();
+                        targetCtx.arc(canvasCoords.x, canvasCoords.y, brushRadius, 0, Math.PI * 2);
+                        targetCtx.fill();
+                    }
+                }
                 
                 // 마스크에 회색 원 추가 (60%만 지워지게)
                 // SVG 마스크에서 회색 = 부분적으로 보임
@@ -1161,8 +1400,8 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
                 // 지워진 비율 확인
                 const erasedRatio = getErasedRatio();
                 console.log('지워진 비율:', (erasedRatio * 100).toFixed(1) + '%');
-                if (erasedRatio >= 0.7 && !fadeOutAnimation) {
-                    console.log('페이드아웃 시작');
+                if (erasedRatio >= 0.6 && !fadeOutAnimation) {
+                    console.log('페이드아웃 시작 (60% 도달)');
                     startFadeOut();
                 }
             }
@@ -1359,6 +1598,8 @@ function turnPage() {
 let sectionsLoaded = false;
 window.addEventListener('sectionsLoaded', () => {
     sectionsLoaded = true;
+    console.log('섹션 로드 완료, 섹션 수:', sections.length);
+    // 스크롤 높이 업데이트 (섹션이 로드된 후)
     updateScrollHeight();
 });
 
