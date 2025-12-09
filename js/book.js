@@ -154,6 +154,10 @@ const PHASE_ZOOM_END = 0.85; // 줌인 완료 지점
 // 책 애니메이션 고정 높이 (vh 단위)
 const BOOK_ANIMATION_HEIGHT = 600; // 600vh - 감도 빠르게
 
+// 페이지 넘김 사운드 관리
+let bookFlipAudio = null;
+let lastFlipPhaseRatio = 0;
+
 function updateBookAnimation() {
     // 책 애니메이션은 고정된 높이에서만 진행
     const bookAnimationHeight = window.innerHeight * (BOOK_ANIMATION_HEIGHT / 100);
@@ -193,6 +197,13 @@ function updateBookAnimation() {
 
     if (scrollRatio <= PHASE_ORIENT_END) {
         // [PHASE 1] 책 세우기
+        // 이전 구간의 사운드 정리
+        if (bookFlipAudio) {
+            bookFlipAudio.pause();
+            bookFlipAudio.currentTime = 0;
+            bookFlipAudio = null;
+            lastFlipPhaseRatio = 0;
+        }
         const phaseRatio = scrollRatio / PHASE_ORIENT_END;
         const easedRatio = phaseRatio < 0.5 ? 4 * phaseRatio * phaseRatio * phaseRatio : 1 - Math.pow(-2 * phaseRatio + 2, 3) / 2;
 
@@ -229,7 +240,27 @@ function updateBookAnimation() {
     } else if (scrollRatio <= PHASE_FLIP_END) {
         // [PHASE 2] 책 펼치기
         const phaseRatio = (scrollRatio - PHASE_ORIENT_END) / (PHASE_FLIP_END - PHASE_ORIENT_END);
-        const easedPhaseRatio = phaseRatio * phaseRatio * (3 - 2 * phaseRatio); 
+        const easedPhaseRatio = phaseRatio * phaseRatio * (3 - 2 * phaseRatio);
+        
+        // 페이지 넘김 사운드 재생 (루프)
+        if (phaseRatio > 0 && phaseRatio < 1) {
+            if (!bookFlipAudio) {
+                bookFlipAudio = new Audio('audio/page-filp.mp3');
+                bookFlipAudio.loop = true;
+                bookFlipAudio.volume = 0.5;
+                bookFlipAudio.play().catch(error => {
+                    console.error('책 넘김 사운드 재생 실패:', error);
+                });
+            }
+        } else {
+            // 구간 종료 시 사운드 정지
+            if (bookFlipAudio) {
+                bookFlipAudio.pause();
+                bookFlipAudio.currentTime = 0;
+                bookFlipAudio = null;
+            }
+        }
+        lastFlipPhaseRatio = phaseRatio; 
 
         book.rotation.y = 0;
         book.rotation.x = 0;

@@ -1,23 +1,14 @@
 <!DOCTYPE html>
-<!-- HTML 문서 형식임을 브라우저에 알립니다. -->
 <html lang="ko">
-<!-- 문서의 기본 언어가 한국어임을 명시합니다. -->
 <head>
-    <!-- 문서의 메타데이터(설정 정보)를 담는 영역입니다. -->
     <meta charset="UTF-8">
-    <!-- 문자 인코딩을 UTF-8로 설정하여 한글, 특수문자 등이 깨지지 않게 합니다. -->
     <title>The line goes where I go</title>
-    <!-- 브라우저 탭에 표시될 문서의 제목입니다. -->
     <link rel="stylesheet" href="style.css">
-    <!-- 외부 CSS 파일을 연결합니다. -->
 </head>
 <body>
-    <!-- 웹페이지에 실제로 표시될 콘텐츠 영역입니다. -->
 
     <div id="scroll-container">
-        <!-- 스크롤 이벤트를 감지하고, 스크롤 길이를 제공하는 컨테이너입니다. -->
         <div id="scene-container"></div>
-        <!-- 3D 그래픽이 그려질 <canvas> 요소가 이 안에 삽입될 것입니다. -->
     </div>
 
     <div id="scroll-guide">
@@ -37,13 +28,9 @@
 
       <div class="book-content"></div>
 
-    <!-- Three.js 라이브러리를 불러옵니다. CDN(Content Delivery Network)을 통해 인터넷에서 직접 가져옵니다. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- 섹션 데이터 배열 -->
     <script src="./js/sections.js"></script>
-    <!-- 3D 책 애니메이션 JavaScript 파일을 불러옵니다. -->
     <script src="./js/book.js"></script>
-    <!-- 컨투어 드로잉 JavaScript 파일을 불러옵니다. -->
     <script src="./js/contour.js"></script>
 
 </body>

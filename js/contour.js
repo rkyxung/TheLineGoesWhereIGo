@@ -10,6 +10,12 @@ let isPageTurning = false; // 페이지 넘김 중인지 확인
 let brushDrawingShown = false; // 브러쉬 드로잉이 표시되었는지
 let brushDrawingScrollY = 0; // 브러쉬 드로잉이 나타난 시점의 스크롤 위치
 
+// 오디오 관리
+let pencilWritingAudio = null; // 텍스트 타이핑 사운드
+let pageTurnAudio = null; // 페이지 넘김 사운드
+let drawingAudio = null; // SVG 드로잉 사운드
+let lastSvgProgress = 0; // 이전 SVG 진행률 (역재생 감지용)
+
 // 상수 설정
 const SVG_START = 0.85; // 책 줌인 이후 드로잉 시작 지점
 const TEXT_START_PROGRESS = 0.5; // SVG가 절반 그려진 뒤 텍스트 시작
@@ -96,27 +102,21 @@ function updateScrollHeight() {
     const scrollContainer = document.getElementById('scroll-container');
     if (scrollContainer) {
         scrollContainer.style.height = `${totalHeight}px`;
-        console.log('스크롤 컨테이너 높이 설정:', totalHeight, 'px (섹션 수:', totalSections, ')');
-    } else {
-        console.error('scroll-container를 찾을 수 없음');
     }
 }
 
 function initContourDrawing() {
-    console.log('initContourDrawing 호출됨, sections:', sections);
     // 스크롤 높이 업데이트
     updateScrollHeight();
     
     // 첫 번째 섹션 시작 (스크롤 위치와 관계없이 항상 첫 번째 섹션 로드)
     const activeIndex = getActiveSectionIndex();
-    console.log('활성 섹션 인덱스:', activeIndex, '현재 스크롤:', window.scrollY);
     
     // 활성 섹션이 없거나 첫 번째 섹션 이전이면 첫 번째 섹션 강제 로드
     if (activeIndex >= 0) {
         loadSection(activeIndex);
     } else {
         // 스크롤 위치가 첫 번째 섹션 이전이면 첫 번째 섹션 로드
-        console.log('활성 섹션이 없음. 첫 번째 섹션 강제 로드');
         loadSection(0);
     }
 }
@@ -243,7 +243,6 @@ function loadSection(index, isNextPage = false) {
             imageContainer.style.zIndex = '1';
             imageContainer.style.overflow = 'visible'; // 넘치는 부분도 보이도록
             
-            console.log(`[${section.id}] 로드할 이미지 개수: ${imgPathsToLoad.length}`, imgPathsToLoad);
             imgPathsToLoad.forEach((imgPath, i) => {
                 const imgWrapper = document.createElement('div');
                 imgWrapper.style.position = 'absolute'; // 절대 위치로 겹치게 배치
@@ -279,24 +278,18 @@ function loadSection(index, isNextPage = false) {
                     img.style.width = '100%';
                     img.style.height = '100%';
                     img.style.objectFit = 'contain';
-                    
-                    console.log(`[${section.id}] 이미지 ${i + 1} 로드 완료: ${imgPath}, 크기: ${naturalWidth}x${naturalHeight}, 컨테이너: ${containerWidth.toFixed(1)}x${containerHeight.toFixed(1)}`);
                 };
                 img.onerror = () => {
-                    console.error(`[${section.id}] 이미지 ${i + 1} 로드 실패:`, imgPath);
                 };
                 imgWrapper.appendChild(img);
                 imageContainer.appendChild(imgWrapper);
             });
-            console.log(`[${section.id}] 이미지 컨테이너 자식 수:`, imageContainer.children.length);
         }
         
         // 모든 SVG 로드
-        console.log(`[${section.id}] 로드할 SVG 개수: ${svgPathsToLoad.length}`, svgPathsToLoad);
         Promise.all(svgPathsToLoad.map(path => 
             fetch(path).then(response => response.text())
         )).then(svgTexts => {
-            console.log(`[${section.id}] SVG 로드 완료, 개수: ${svgTexts.length}`);
             svgTexts.forEach((svgText, i) => {
                 const svgWrapper = document.createElement('div');
                 svgWrapper.style.position = 'absolute'; // 절대 위치로 겹치게 배치
@@ -350,13 +343,9 @@ function loadSection(index, isNextPage = false) {
                     if (!isNextPage && imgPathsToLoad[i]) {
                         svg.setAttribute('data-mask-id', `mask-${section.id}-${i}`);
                     }
-                    console.log(`[${section.id}] SVG ${i + 1} 추가됨: ${svgPathsToLoad[i]}, 크기: ${svgWidth}x${svgHeight}, 컨테이너: ${containerWidth.toFixed(1)}x${containerHeight.toFixed(1)}`);
-                } else {
-                    console.error(`[${section.id}] SVG ${i + 1} 파싱 실패:`, svgPathsToLoad[i]);
                 }
                 svgContainer.appendChild(svgWrapper);
             });
-            console.log(`[${section.id}] SVG 컨테이너 자식 수:`, svgContainer.children.length);
             
             // Path 초기화 (모든 SVG의 path 수집)
             // 다음 페이지가 아닐 때만 svgPaths에 추가
@@ -396,7 +385,6 @@ function loadSection(index, isNextPage = false) {
                 startSectionAnimation();
             }
         }).catch(error => {
-            console.error('SVG 로드 실패:', error);
         });
         return;
     }
@@ -496,7 +484,6 @@ function loadSection(index, isNextPage = false) {
             }
         })
         .catch(error => {
-            console.error(`SVG 로드 실패 (${section.svgPath}):`, error);
         });
 }
 
@@ -535,34 +522,44 @@ function animateSVGPaths() {
         }
         
         // 페이지 넘김 중이면 업데이트하지 않음
-        if (isPageTurning) return;
+        if (isPageTurning) {
+            console.log(`[DEBUG] 페이지 넘김 중 - activeIndex: ${activeIndex}, currentSectionIndex: ${currentSectionIndex}, sectionState: ${sectionState}`);
+            return;
+        }
         
-        // 페이지 넘김 상태일 때는 자동으로 섹션 변경하지 않음 (클릭만 가능)
+        // 페이지 넘김 상태일 때는 완전히 차단
         if (sectionState === SectionState.PAGE_TURN) {
+            // 스크롤로 인한 섹션 변경 시도 차단
+            if (activeIndex !== currentSectionIndex) {
+                console.log(`[DEBUG] 페이지 넘김 상태에서 스크롤로 인한 섹션 변경 시도 차단 - activeIndex: ${activeIndex}, currentSectionIndex: ${currentSectionIndex}`);
+            }
             return;
         }
         
-        // 활성 섹션이 변경되었으면 새로 로드 (페이지 넘김으로 인한 변경이 아닐 때만)
-        if (activeIndex !== currentSectionIndex && !isPageTurning) {
-            loadSection(activeIndex);
-            return;
+        // 스크롤로 인한 자동 섹션 변경 완전히 차단 (클릭으로만 페이지 넘김 가능)
+        // 단, 애니메이션은 계속 진행되어야 하므로 loadSection만 호출하지 않음
+        if (activeIndex !== currentSectionIndex) {
+            console.log(`[DEBUG] 스크롤로 인한 섹션 변경 시도 차단 - activeIndex: ${activeIndex}, currentSectionIndex: ${currentSectionIndex}, sectionState: ${sectionState}, isPageTurning: ${isPageTurning}`);
+            // loadSection을 호출하지 않지만, 현재 섹션의 애니메이션은 계속 진행
+            // activeIndex를 currentSectionIndex로 고정하여 현재 섹션의 진행률만 계산
         }
         
+        // 현재 섹션이 SVG 또는 TYPING 상태가 아니면 리턴
         if (sectionState !== SectionState.SVG && sectionState !== SectionState.TYPING) return;
         
-        // 현재 섹션의 스크롤 진행률 계산
-        const sectionProgress = getCurrentSectionProgress(activeIndex);
+        // 현재 섹션의 스크롤 진행률 계산 (현재 섹션 인덱스 사용)
+        const sectionProgress = getCurrentSectionProgress(currentSectionIndex);
         
         // 섹션 시작 지점 확인 (빠르게 시작)
         const SECTION_START = 0.02;
         
-        // SVG가 없는 섹션 (텍스트만)
+        // SVG가 없는 섹션 (텍스트만) - 바로 다음 페이지로 넘어감
         if (svgPaths.length === 0) {
-            // 텍스트만 표시하는 섹션은 바로 타이핑
-            sectionState = SectionState.TYPING;
-            // sectionProgress를 그대로 사용 (0~1 범위)
-            const textProgress = Math.max(0, Math.min(1, (sectionProgress - SECTION_START) / (1 - SECTION_START)));
-            animateTextTypingForTextOnly(textProgress);
+            if (!typingComplete) {
+                typingComplete = true;
+                sectionState = SectionState.PAGE_TURN;
+                showPageTurnIndicator();
+            }
             return;
         }
         
@@ -586,6 +583,43 @@ function animateSVGPaths() {
         const rawProgress = clamp01((sectionProgress - SECTION_START) / (1 - SECTION_START));
         const easedProgress = easeInOutCubic(rawProgress);
         const svgProgress = Math.pow(easedProgress, DRAW_EASE_POWER);
+        
+        // SVG 드로잉 사운드 재생 (루프) - 진행률 0.1 이상일 때 시작, 0.9 이상일 때 종료
+        const DRAWING_SOUND_START = 0.1;
+        const DRAWING_SOUND_END = 0.9;
+        
+        if (svgProgress >= DRAWING_SOUND_START && svgProgress < DRAWING_SOUND_END) {
+            if (!drawingAudio) {
+                drawingAudio = new Audio('audio/drawing.mp3');
+                drawingAudio.loop = true;
+                drawingAudio.volume = 0.1;
+                drawingAudio.play().catch(error => {
+                    console.error('드로잉 사운드 재생 실패:', error);
+                });
+            }
+        } else {
+            // 진행률이 0.1 미만이거나 0.9 이상이면 사운드 정지
+            if (drawingAudio) {
+                drawingAudio.pause();
+                drawingAudio.currentTime = 0;
+                drawingAudio = null;
+            }
+        }
+        
+        // 역재생 감지 (svgProgress가 감소하는 경우)
+        const isReversing = svgProgress < lastSvgProgress;
+        if (isReversing && svgProgress >= DRAWING_SOUND_START && svgProgress < DRAWING_SOUND_END) {
+            // 역재생 중에도 사운드 재생 (진행률 범위 내에서만)
+            if (!drawingAudio) {
+                drawingAudio = new Audio('audio/drawing.mp3');
+                drawingAudio.loop = true;
+                drawingAudio.volume = 0.4;
+                drawingAudio.play().catch(error => {
+                    console.error('드로잉 사운드 재생 실패:', error);
+                });
+            }
+        }
+        lastSvgProgress = svgProgress;
         
         const pathCount = svgPaths.length;
         const progressPerPath = 1 / pathCount;
@@ -619,7 +653,6 @@ function animateSVGPaths() {
     if (!scrollEventListenerAdded) {
         window.addEventListener('scroll', updateSVGAnimation);
         scrollEventListenerAdded = true;
-        console.log('스크롤 이벤트 리스너 추가됨');
     }
     
     // 초기 실행
@@ -676,6 +709,16 @@ function animateTextTyping(svgProgress) {
     const totalChars = typingText.length;
     const charsToShow = Math.floor(easedTextProgress * totalChars);
     
+    // 텍스트 타이핑 시작 시 사운드 재생 (한 번만)
+    if (charsToShow > 0 && !pencilWritingAudio) {
+        pencilWritingAudio = new Audio('audio/pencil-writing.mp3');
+        pencilWritingAudio.loop = true;
+        pencilWritingAudio.volume = 1;
+        pencilWritingAudio.play().catch(error => {
+            console.error('펜슬 사운드 재생 실패:', error);
+        });
+    }
+    
     // 텍스트 업데이트
     textContainer.textContent = typingText.substring(0, charsToShow);
     
@@ -683,7 +726,14 @@ function animateTextTyping(svgProgress) {
     if (charsToShow >= totalChars && !typingComplete) {
         typingComplete = true;
         sectionState = SectionState.PAGE_TURN;
-        console.log('텍스트 타이핑 완료, 페이지 넘김 준비됨');
+        
+        // 타이핑 사운드 정지
+        if (pencilWritingAudio) {
+            pencilWritingAudio.pause();
+            pencilWritingAudio.currentTime = 0;
+            pencilWritingAudio = null;
+        }
+        
         // 페이지 넘김 가능 표시 (오른쪽 가장자리 접힘 효과)
         showPageTurnIndicator();
     }
@@ -721,7 +771,6 @@ function animateTextTypingForTextOnly(textProgress) {
     if (charsToShow >= totalChars && !typingComplete) {
         typingComplete = true;
         sectionState = SectionState.PAGE_TURN;
-        console.log('텍스트 타이핑 완료 (텍스트만), 페이지 넘김 준비됨');
         // 페이지 넘김 가능 표시 (오른쪽 가장자리 접힘 효과)
         showPageTurnIndicator();
     }
@@ -731,19 +780,16 @@ function animateTextTypingForTextOnly(textProgress) {
 function showPageTurnIndicator() {
     const bookContent = document.querySelector('.book-content');
     if (!bookContent) {
-        console.log('bookContent 없음');
         return;
     }
     
     const currentPageLayer = bookContent.querySelector('.page-layer.current');
     if (!currentPageLayer) {
-        console.log('currentPageLayer 없음');
         return;
     }
     
     // 페이지 넘김 중이면 표시하지 않음
     if (isPageTurning) {
-        console.log('페이지 넘김 중이라 인디케이터 표시 안 함');
         return;
     }
     
@@ -764,11 +810,8 @@ function showPageTurnIndicator() {
     pageTurnIndicator.className = 'page-turn-indicator';
     currentPageLayer.appendChild(pageTurnIndicator);
     
-    console.log('페이지 넘김 인디케이터 생성됨', pageTurnIndicator, '부모:', currentPageLayer);
-    
     // 클릭 이벤트 추가
     pageTurnIndicator.addEventListener('click', () => {
-        console.log('페이지 넘김 클릭됨');
         turnPage();
     });
     
@@ -778,32 +821,27 @@ function showPageTurnIndicator() {
     // Brush-Drawing.svg 표시
     showBrushDrawing(currentPageLayer);
     
-    // 스크롤 막기
+    // 스크롤 막기 (body와 html 모두 막기)
     document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
     console.log('스크롤 막힘');
 }
 
 // Brush-Drawing.svg 표시 함수
 function showBrushDrawing(pageLayer) {
     if (!pageLayer) {
-        console.log('showBrushDrawing: pageLayer 없음');
         return;
     }
-    
-    console.log('showBrushDrawing 호출됨, pageLayer:', pageLayer);
     
     // Brush-Drawing.svg 로드
     fetch('svg/Brush-Drawing.svg')
         .then(response => {
-            console.log('Brush-Drawing.svg 응답:', response.status);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             return response.text();
         })
         .then(svgText => {
-            console.log('Brush-Drawing.svg 로드 성공, 길이:', svgText.length);
-            
             // Brush-Drawing 컨테이너 생성
             const brushContainer = document.createElement('div');
             brushContainer.className = 'brush-drawing';
@@ -818,28 +856,21 @@ function showBrushDrawing(pageLayer) {
                 svg.style.opacity = '1';
                 svg.style.filter = 'none';
                 svg.style.imageRendering = 'crisp-edges'; // 선명하게
-                console.log('SVG 요소 찾음:', svg);
-            } else {
-                console.error('SVG 요소를 찾을 수 없음');
             }
             
             // 브러쉬 컨테이너도 opacity 확인
             brushContainer.style.opacity = '1';
             
             pageLayer.appendChild(brushContainer);
-            console.log('Brush-Drawing.svg 표시됨, 컨테이너:', brushContainer);
-            console.log('부모 요소:', pageLayer, '자식 수:', pageLayer.children.length);
             
             // 브러쉬 드로잉이 나타난 시점의 스크롤 위치 저장
             brushDrawingShown = true;
             brushDrawingScrollY = window.scrollY;
-            console.log('브러쉬 드로잉 표시 시점 스크롤 위치:', brushDrawingScrollY);
             
             // 드래그 기능 추가
             initBrushDrawingDrag(brushContainer, pageLayer);
         })
         .catch(error => {
-            console.error('Brush-Drawing.svg 로드 실패:', error);
         });
 }
 
@@ -965,8 +996,6 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
         svgContainer.appendChild(canvas);
         eraseCanvases.push(canvas);
         eraseCtxs.push(ctx);
-        
-        console.log(`[이미지 ${index + 1}] Canvas 생성: ${imgRect.width.toFixed(1)} x ${imgRect.height.toFixed(1)}`);
     };
     
     // 이미지가 모두 로드된 후 각 이미지마다 Canvas 생성
@@ -1010,8 +1039,6 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
             const imgRect = img.getBoundingClientRect();
             totalArea += imgRect.width * imgRect.height;
         });
-        
-        console.log(`[페이지별] 실제 이미지 총 면적: ${totalArea.toFixed(0)} px² (이미지 수: ${actualImgs.length})`);
     };
     
     // SVG 컨테이너 좌표를 해당 이미지의 Canvas 좌표로 변환하는 함수
@@ -1082,7 +1109,6 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
         });
         
         const ratio = totalImagePixels > 0 ? totalErasedPixels / totalImagePixels : 0;
-        console.log(`[페이지별 이미지 기준] 지워진 픽셀: ${totalErasedPixels}/${totalImagePixels}, 비율: ${(ratio * 100).toFixed(1)}%`);
         return ratio;
     };
     
@@ -1203,9 +1229,7 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
                     
                     // 지워진 비율 확인
                     const erasedRatio = getErasedRatio();
-                    console.log('지워진 비율:', (erasedRatio * 100).toFixed(1) + '%');
                     if (erasedRatio >= 0.6 && !fadeOutAnimation) {
-                        console.log('페이드아웃 시작 (60% 도달)');
                         startFadeOut();
                     }
                 }
@@ -1244,9 +1268,7 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
                 
                 // 지워진 비율 확인
                 const erasedRatio = getErasedRatio();
-                console.log('지워진 비율:', (erasedRatio * 100).toFixed(1) + '%');
                 if (erasedRatio >= 0.6 && !fadeOutAnimation) {
-                    console.log('페이드아웃 시작 (60% 도달)');
                     startFadeOut();
                 }
             }
@@ -1361,9 +1383,7 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
                     
                     // 지워진 비율 확인
                     const erasedRatio = getErasedRatio();
-                    console.log('지워진 비율:', (erasedRatio * 100).toFixed(1) + '%');
                     if (erasedRatio >= 0.6 && !fadeOutAnimation) {
-                        console.log('페이드아웃 시작 (60% 도달)');
                         startFadeOut();
                     }
                 }
@@ -1402,9 +1422,7 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
                 
                 // 지워진 비율 확인
                 const erasedRatio = getErasedRatio();
-                console.log('지워진 비율:', (erasedRatio * 100).toFixed(1) + '%');
                 if (erasedRatio >= 0.6 && !fadeOutAnimation) {
-                    console.log('페이드아웃 시작 (60% 도달)');
                     startFadeOut();
                 }
             }
@@ -1438,9 +1456,20 @@ function turnPage() {
     
     if (!currentPageLayer) return;
     
+    // 페이지 넘김 사운드 재생
+    if (pageTurnAudio) {
+        pageTurnAudio.pause();
+        pageTurnAudio.currentTime = 0;
+    }
+    pageTurnAudio = new Audio('audio/page-turn.mp3');
+    pageTurnAudio.volume = 0.5;
+    pageTurnAudio.play().catch(error => {
+        console.error('페이지 넘김 사운드 재생 실패:', error);
+    });
+    
     // 페이지 넘김 시작 시 스크롤 다시 활성화
     document.body.style.overflow = '';
-    console.log('페이지 넘김 시작 - 스크롤 다시 활성화');
+    document.documentElement.style.overflow = '';
     
     // 페이지 넘김 중 플래그 설정
     isPageTurning = true;
@@ -1474,17 +1503,14 @@ function turnPage() {
     setTimeout(() => {
         // 다음 섹션으로 이동
         currentSectionIndex++;
-        console.log('페이지 넘김 완료, 현재 섹션 인덱스:', currentSectionIndex);
         if (currentSectionIndex < sections.length) {
             // 다음 페이지 레이어를 현재로 변경
             const newCurrentLayer = bookContent.querySelector('.page-layer.next');
             if (newCurrentLayer) {
-                console.log('다음 페이지 레이어를 현재로 변경:', sections[currentSectionIndex]?.id);
                 newCurrentLayer.className = 'page-layer current';
                 newCurrentLayer.style.transform = 'translateX(0)';
                 newCurrentLayer.style.opacity = '1';
             } else {
-                console.error('다음 페이지 레이어를 찾을 수 없음, 인덱스:', currentSectionIndex);
                 // 다음 페이지 레이어가 없으면 새로 로드
                 loadSection(currentSectionIndex);
                 return;
@@ -1502,7 +1528,7 @@ function turnPage() {
             
             // 스크롤 다시 활성화
             document.body.style.overflow = '';
-            console.log('스크롤 다시 활성화');
+            document.documentElement.style.overflow = '';
             
             // 이미 로드된 다음 페이지에서 SVG 경로 수집 및 초기화
             // loadSection을 다시 호출하지 않고 기존 내용 사용
@@ -1514,13 +1540,42 @@ function turnPage() {
                     svgPaths = [];
                     totalPathLength = 0;
                     const section = sections[currentSectionIndex];
-                    typingText = section.text;
+                    typingText = section.text || '';
                     typingIndex = 0;
                     typingComplete = false;
                     pageTurnTriggered = false;
                     brushDrawingShown = false;
                     
-                    // SVG 경로 수집 및 초기화
+                    // 이전 페이지의 타이핑 사운드 정지
+                    if (pencilWritingAudio) {
+                        pencilWritingAudio.pause();
+                        pencilWritingAudio.currentTime = 0;
+                        pencilWritingAudio = null;
+                    }
+                    
+                    // 이전 페이지의 드로잉 사운드 정지
+                    if (drawingAudio) {
+                        drawingAudio.pause();
+                        drawingAudio.currentTime = 0;
+                        drawingAudio = null;
+                    }
+                    lastSvgProgress = 0;
+                    
+                    // 이전 페이지의 모든 SVG를 명확하게 숨김 (혹시 남아있을 수 있는 경우 대비)
+                    const allPreviousSvgs = document.querySelectorAll('.page-layer svg');
+                    allPreviousSvgs.forEach(svg => {
+                        const paths = svg.querySelectorAll('path');
+                        paths.forEach(path => {
+                            const length = path.getTotalLength();
+                            if (length > 0) {
+                                path.style.transition = 'none';
+                                path.style.strokeDasharray = `${length}`;
+                                path.style.strokeDashoffset = `${length}`;
+                            }
+                        });
+                    });
+                    
+                    // 현재 페이지의 SVG 경로 수집 및 초기화
                     const svgs = finalCurrentLayer.querySelectorAll('svg');
                     if (svgs.length > 0) {
                         svgs.forEach(svg => {
@@ -1540,11 +1595,24 @@ function turnPage() {
                             });
                         });
                         
-                        // 강제로 다시 한 번 숨김 상태 확인 및 설정
+                        // 강제로 다시 한 번 숨김 상태 확인 및 설정 (이전 SVG 잔존 방지)
                         requestAnimationFrame(() => {
+                            // 모든 페이지의 SVG를 다시 한 번 확인하여 숨김
+                            document.querySelectorAll('.page-layer svg path').forEach(path => {
+                                const length = path.getTotalLength();
+                                if (length > 0 && !svgPaths.includes(path)) {
+                                    // 현재 페이지의 path가 아니면 숨김
+                                    path.style.transition = 'none';
+                                    path.style.strokeDasharray = `${length}`;
+                                    path.style.strokeDashoffset = `${length}`;
+                                }
+                            });
+                            
+                            // 현재 페이지의 path들도 다시 한 번 확인
                             svgPaths.forEach((path) => {
                                 const length = path.getTotalLength();
                                 if (length > 0) {
+                                    path.style.transition = 'none';
                                     path.style.strokeDasharray = `${length}`;
                                     path.style.strokeDashoffset = `${length}`;
                                 }
@@ -1557,8 +1625,6 @@ function turnPage() {
                                 });
                             });
                         });
-                        
-                        console.log('SVG 경로 수집 완료:', svgPaths.length, 'paths');
                     } else {
                         // SVG가 없는 경우
                         svgPaths = [];
@@ -1576,16 +1642,12 @@ function turnPage() {
                                 existingNext.remove();
                             }
                             loadSection(currentSectionIndex + 1, true);
-                            console.log('새로운 다음 페이지 준비:', sections[currentSectionIndex + 1]?.id);
                         }, 200);
                     }
-                } else {
-                    console.error('페이지 레이어를 찾을 수 없음');
                 }
             }, 100);
         } else {
             // 모든 섹션 완료 - 책 닫기 로직 (추후 구현)
-            console.log('모든 섹션 완료');
             isPageTurning = false;
             // 스크롤 다시 활성화
             document.body.style.overflow = '';
@@ -1601,7 +1663,6 @@ function turnPage() {
 let sectionsLoaded = false;
 window.addEventListener('sectionsLoaded', () => {
     sectionsLoaded = true;
-    console.log('섹션 로드 완료, 섹션 수:', sections.length);
     // 스크롤 높이 업데이트 (섹션이 로드된 후)
     updateScrollHeight();
 });
