@@ -213,6 +213,7 @@ body {
     font-family: 'NanumHandwriting', sans-serif;
     transition: opacity 0.5s ease;
     opacity: 1;
+    z-index: 999;
 }
 
 #scroll-guide p {
@@ -227,6 +228,11 @@ body {
 @keyframes bounce {
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(0.7vh); }
+}
+
+@keyframes arrowSlide {
+    0%, 100% { transform: translateY(-50%) rotateY(-15deg) translateX(0); }
+    50% { transform: translateY(-50%) rotateY(-15deg) translateX(0.3vw); }
 }
 
 .page-turn-indicator {
@@ -271,6 +277,7 @@ body {
     color: rgba(0, 0, 0, 0.6);
     pointer-events: none;
     transition: transform 0.3s ease, opacity 0.3s ease;
+    animation: arrowSlide 2s ease-in-out infinite;
 }
 
 .page-turn-indicator:hover::after {
