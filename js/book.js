@@ -24,8 +24,8 @@ scene.add(ambientLight);
 const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2); 
 directionalLight.position.set(5, 10, 7.5);
 directionalLight.castShadow = true;
-directionalLight.shadow.mapSize.width = 2048;
-directionalLight.shadow.mapSize.height = 2048;
+directionalLight.shadow.mapSize.width = 512;
+directionalLight.shadow.mapSize.height = 512;
 directionalLight.shadow.radius = 4; 
 scene.add(directionalLight);
 
@@ -69,14 +69,14 @@ for (let i = 0; i < totalItems; i++) {
     // 1. 앞표지
     if (i === 0) {
         const geometry = new THREE.BoxGeometry(pageWidth, pageHeight, coverThickness);
-        const materials = [insideMat, insideMat, sideMat, sideMat, frontCoverMat, insideMat];
+        const materials = [insideMat, insideMat, insideMat, insideMat, frontCoverMat, insideMat];
         pageMesh = new THREE.Mesh(geometry, materials);
         pageMesh.position.z = coverThickness / 2; 
     } 
     // 2. 뒷표지
     else if (i === totalItems - 1) {
         const geometry = new THREE.BoxGeometry(pageWidth, pageHeight, coverThickness);
-        const materials = [sideMat, insideMat, sideMat, sideMat, insideMat, backCoverMat];
+        const materials = [insideMat, insideMat, insideMat, insideMat, pageTexture, backCoverMat];
         pageMesh = new THREE.Mesh(geometry, materials);
         pageMesh.position.z = coverThickness / 2; 
     } 
@@ -149,47 +149,110 @@ let lookAtTarget = new THREE.Vector3(0, 0, 0);
 // 단계별 끝나는 지점 (비율)
 const PHASE_ORIENT_END = 0.25; 
 const PHASE_FLIP_END = 0.6;
-const PHASE_ZOOM_END = 0.85; // 줌인 완료 지점   
+const PHASE_ZOOM_END = 0.85; // 줌인 완료 지점
+const PHASE_ZOOM_OUT_END = 1.1; // 줌아웃 완료 지점 (줌인과 같은 범위로)
+const PHASE_CLOSE_END = 1.6; // 책 닫히기 완료 지점 (범위 확대)
 
+// 책 펼쳐지는 오디오 타이밍 조절 (PHASE_FLIP_END 기준 통합 비율)
+// 음수 = PHASE 2 (책 펼치기), 양수 = PHASE 3 (줌인)
+// 예: -0.5 = PHASE 2의 중간, 0 = PHASE_FLIP_END, 0.7 = PHASE 3의 70%
+const BOOK_FLIP_AUDIO_START_RATIO = -1; // 오디오 시작 시점 (PHASE 2에서 시작)
+const BOOK_FLIP_AUDIO_END_RATIO = 0;    // 오디오 종료 시점 (PHASE 3의 70%에서 종료)
+ 
 // 책 애니메이션 고정 높이 (vh 단위)
 const BOOK_ANIMATION_HEIGHT = 600; // 600vh - 감도 빠르게
 
-// 페이지 넘김 사운드 관리
-let bookFlipAudio = null;
+// 페이지 넘김 사운드 관리 (전역에서 한 번만 생성)
+const bookFlipAudio = new Audio('audio/pages-filp.mp3');
+bookFlipAudio.loop = true;
+bookFlipAudio.volume = 0.5;
+bookFlipAudio.playbackRate = 0.7; // 재생 속도 설정
+let isBookFlipAudioPlaying = false; // 재생 상태 추적
 let lastFlipPhaseRatio = 0;
 
+// 배경 음악 관리 (전역에서 한 번만 생성)
+const backgroundAudio = new Audio('audio/background02.mp3');
+backgroundAudio.loop = true;
+backgroundAudio.volume = 0; // 초기 볼륨 0 (페이드 인을 위해)
+
+// 전역 접근을 위해 window 객체에 할당
+window.backgroundAudio = backgroundAudio;
+
+
 function updateBookAnimation() {
-    // 책 애니메이션은 고정된 높이에서만 진행
-    const bookAnimationHeight = window.innerHeight * (BOOK_ANIMATION_HEIGHT / 100);
-    const scrollRatio = Math.min(window.scrollY / bookAnimationHeight, 1.0);
+    // 마지막 페이지 스크롤 시작점을 가져옴 (contour.js에서 설정)
+    const lastPageScrollStart = window.lastPageScrollStart || 0;
+    
+    // 마지막 페이지에 도달했고, 현재 스크롤 위치가 시작점 이후일 때를 감지
+    const isLastPageScroll = window.lastPageReached && window.scrollY >= lastPageScrollStart;
+
+    let scrollRatio;
+    let bookAnimationHeight;
+
+    if (isLastPageScroll) {
+        // [클로징 시퀀스]
+        // 줌인 상태(PHASE_ZOOM_END)에서 시작해서 줌아웃(PHASE_ZOOM_OUT_END) 후 닫히기(PHASE_CLOSE_END)까지
+        const closingScrollRange = window.innerHeight * ( (PHASE_CLOSE_END - PHASE_ZOOM_END) * (BOOK_ANIMATION_HEIGHT / 100) );
+        const progress = (window.scrollY - lastPageScrollStart) / closingScrollRange;
+        // progress가 0일 때 PHASE_ZOOM_END (줌인 완료 상태), progress가 1일 때 PHASE_CLOSE_END (닫히기 완료)
+        scrollRatio = PHASE_ZOOM_END + progress * (PHASE_CLOSE_END - PHASE_ZOOM_END);
+        // 마지막 페이지 스크롤 시작 시 최소값을 PHASE_ZOOM_END로 고정 (줌인 완료 상태에서 시작)
+        scrollRatio = Math.max(PHASE_ZOOM_END, scrollRatio);
+    } else {
+        // [오프닝 시퀀스]
+        bookAnimationHeight = window.innerHeight * (BOOK_ANIMATION_HEIGHT / 100);
+        scrollRatio = Math.min(window.scrollY / bookAnimationHeight, 1.0);
+    }
+    
     const lerp = (start, end, ratio) => start * (1 - ratio) + end * ratio;
 
     if(descText) descText.style.opacity = (1 - scrollRatio * 5);
     
     const scrollGuide = document.getElementById('scroll-guide');
-    if(scrollGuide) {
-        scrollGuide.style.opacity = Math.max(0, 1 - scrollRatio * 5);
-    }
+    if(scrollGuide) scrollGuide.style.opacity = Math.max(0, 1 - scrollRatio * 5);
     
-    // .book-content 페이드 인 제어
+    const audioToggle = document.getElementById('audio-toggle');
+    if(audioToggle) audioToggle.style.opacity = Math.max(0, 1 - scrollRatio * 5);
+    
     const bookContent = document.querySelector('.book-content');
-    if (scrollRatio > PHASE_ZOOM_END) {
-        const fadeRatio = (scrollRatio - PHASE_ZOOM_END) / (1 - PHASE_ZOOM_END);
-        const currentOpacity = Math.min(1, fadeRatio);
+    
+    // 페이지 넘김 중일 때는 opacity 조절하지 않음 (깜빡임 방지)
+    if (window.isPageTurning) {
         if(bookContent) {
-            const previousOpacity = parseFloat(bookContent.dataset.previousOpacity || '0');
-            bookContent.style.opacity = currentOpacity;
-            bookContent.dataset.previousOpacity = currentOpacity;
-            
-            // opacity가 1이 되었을 때 컨투어 드로잉 초기화 이벤트 발생
-            if (currentOpacity >= 1 && previousOpacity < 1) {
-                window.dispatchEvent(new CustomEvent('bookContentActivated'));
-            }
+            bookContent.style.opacity = '1'; // 페이지 넘김 중에는 항상 보이게
         }
+        // 페이지 넘김 중에는 container opacity도 변경하지 않음 (현재 상태 유지)
+        // 책 애니메이션은 계속 진행
     } else {
-        if(bookContent) {
-            bookContent.style.opacity = 0;
-            bookContent.dataset.previousOpacity = '0';
+        // 페이지 넘김이 아닐 때만 opacity 조절
+        if (scrollRatio > PHASE_ZOOM_END && !isLastPageScroll) {
+            // [PHASE 4 이후] 책 페이드아웃 + .book-content 페이드인
+            const fadeRatio = (scrollRatio - PHASE_ZOOM_END) / (1 - PHASE_ZOOM_END);
+            const currentOpacity = Math.min(1, fadeRatio);
+            
+            // .book-content 페이드인
+            if(bookContent) {
+                const previousOpacity = parseFloat(bookContent.dataset.previousOpacity || '0');
+                bookContent.style.opacity = currentOpacity;
+                bookContent.dataset.previousOpacity = currentOpacity;
+                
+                if (currentOpacity >= 1 && previousOpacity < 1) {
+                    window.dispatchEvent(new CustomEvent('bookContentActivated'));
+                }
+            }
+            
+            // 책(3D) 페이드아웃
+            const bookOpacity = 1 - currentOpacity;
+            container.style.opacity = bookOpacity;
+            container.style.transition = 'opacity 0.5s ease-out';
+            
+        } else if (!isLastPageScroll) {
+            // [PHASE 4 이전] 책 보임, .book-content 숨김
+            if(bookContent) {
+                bookContent.style.opacity = 0;
+                bookContent.dataset.previousOpacity = '0';
+            }
+            container.style.opacity = '1';
         }
     }
 
@@ -197,43 +260,25 @@ function updateBookAnimation() {
 
     if (scrollRatio <= PHASE_ORIENT_END) {
         // [PHASE 1] 책 세우기
-        // 이전 구간의 사운드 정리
-        if (bookFlipAudio) {
+        if (isBookFlipAudioPlaying) {
             bookFlipAudio.pause();
             bookFlipAudio.currentTime = 0;
-            bookFlipAudio = null;
-            lastFlipPhaseRatio = 0;
+            isBookFlipAudioPlaying = false;
         }
         const phaseRatio = scrollRatio / PHASE_ORIENT_END;
         const easedRatio = phaseRatio < 0.5 ? 4 * phaseRatio * phaseRatio * phaseRatio : 1 - Math.pow(-2 * phaseRatio + 2, 3) / 2;
 
-        pages.forEach((p, i) => {
-            p.rotation.y = 0;
-            p.position.z = -i * pageThickness; 
-        });
+        pages.forEach((p, i) => { p.rotation.y = 0; p.position.z = -i * pageThickness; });
 
-        // 초기 각도 및 카메라 이동
-        const initialRotY = Math.PI / 6; 
-        const initialRotX = 0; 
+        book.rotation.y = lerp(Math.PI / 6, 0, easedRatio);
+        book.rotation.x = lerp(0, 0, easedRatio);
+        book.position.x = lerp(-0.8, -1.3, easedRatio);
+        book.position.y = lerp(0, 0, easedRatio);
+        book.position.z = lerp(0, 0, easedRatio);
 
-        book.rotation.y = lerp(initialRotY, 0, easedRatio);
-        book.rotation.x = lerp(initialRotX, 0, easedRatio);
-        
-        // 책 위치
-        const initialBookPos = { x: -0.8, y: 0, z: 0 };      
-        const beforeFlipBookPos = { x: -1.3, y: 0, z: 0 };      
-        
-        book.position.x = lerp(initialBookPos.x, beforeFlipBookPos.x, easedRatio);
-        book.position.y = lerp(initialBookPos.y, beforeFlipBookPos.y, easedRatio);
-        book.position.z = lerp(initialBookPos.z, beforeFlipBookPos.z, easedRatio);
-
-        // 카메라
-        const initialCamPos = { x: 0, y: 0, z: 5.0 };        
-        const beforeFlipCamPos = { x: 0, y: 0, z: 4.0 };     
-        
-        camera.position.x = lerp(initialCamPos.x, beforeFlipCamPos.x, easedRatio);
-        camera.position.y = lerp(initialCamPos.y, beforeFlipCamPos.y, easedRatio);
-        camera.position.z = lerp(initialCamPos.z, beforeFlipCamPos.z, easedRatio);
+        camera.position.x = lerp(0, 0, easedRatio);
+        camera.position.y = lerp(0, 0, easedRatio);
+        camera.position.z = lerp(5.0, 4.0, easedRatio);
         
         lookAtTarget.set(0, 0, 0);
 
@@ -242,68 +287,40 @@ function updateBookAnimation() {
         const phaseRatio = (scrollRatio - PHASE_ORIENT_END) / (PHASE_FLIP_END - PHASE_ORIENT_END);
         const easedPhaseRatio = phaseRatio * phaseRatio * (3 - 2 * phaseRatio);
         
-        // 페이지 넘김 사운드 재생 (루프)
-        if (phaseRatio > 0 && phaseRatio < 1) {
-            if (!bookFlipAudio) {
-                bookFlipAudio = new Audio('audio/page-filp.mp3');
-                bookFlipAudio.loop = true;
-                bookFlipAudio.volume = 0.5;
-                bookFlipAudio.play().catch(error => {
-                    console.error('책 넘김 사운드 재생 실패:', error);
-                });
-            }
-        } else {
-            // 구간 종료 시 사운드 정지
-            if (bookFlipAudio) {
-                bookFlipAudio.pause();
-                bookFlipAudio.currentTime = 0;
-                bookFlipAudio = null;
-            }
+        if (!isBookFlipAudioPlaying && window.isAudioEnabled) {
+            bookFlipAudio.play().catch(e => console.error('Audio play failed:', e));
+            isBookFlipAudioPlaying = true;
         }
-        lastFlipPhaseRatio = phaseRatio; 
 
         book.rotation.y = 0;
         book.rotation.x = 0;
-        
-        // 책 위치
-        const beforeFlipBookPos = { x: -1.3, y: 0, z: 0 };   
-        const flippedBookPos = { x: 0, y: 0, z: 0 };         
-        
-        book.position.x = lerp(beforeFlipBookPos.x, flippedBookPos.x, easedPhaseRatio);
-        book.position.y = lerp(beforeFlipBookPos.y, flippedBookPos.y, easedPhaseRatio);
-        book.position.z = lerp(beforeFlipBookPos.z, flippedBookPos.z, easedPhaseRatio);
-        
-        // 카메라
-        const beforeFlipCamPos = { x: 0, y: 0, z: 4.0 };     
-        const flippedCamPos = { x: 0, y: 0, z: 4.0 };        
-        
-        camera.position.x = lerp(beforeFlipCamPos.x, flippedCamPos.x, easedPhaseRatio);
-        camera.position.y = lerp(beforeFlipCamPos.y, flippedCamPos.y, easedPhaseRatio);
-        camera.position.z = lerp(beforeFlipCamPos.z, flippedCamPos.z, easedPhaseRatio);
+        book.position.x = lerp(-1.3, 0, easedPhaseRatio);
 
         pages.forEach((pageGroup, i) => {
             const originZ = -i * pageThickness;
             if (i < middleIndex) {
                 const pagePhaseRatio = Math.min(1, Math.max(0, phaseRatio * 1.5 - (i * 0.04)));
                 pageGroup.rotation.y = lerp(0, -Math.PI, pagePhaseRatio);
-                const leftStackZ = -1 * (middleIndex - 1 - i) * pageThickness;
-                pageGroup.position.z = lerp(originZ, leftStackZ, pagePhaseRatio);
+                pageGroup.position.z = lerp(originZ, -1 * (middleIndex - 1 - i) * pageThickness, pagePhaseRatio);
             } else {
                 pageGroup.rotation.y = 0;
-                const rightStackZ = -1 * (i - middleIndex) * pageThickness;
-                pageGroup.position.z = lerp(originZ, rightStackZ, phaseRatio);
+                pageGroup.position.z = lerp(originZ, -1 * (i - middleIndex) * pageThickness, phaseRatio);
             }
         });
 
-        camera.position.x = 0;
-        camera.position.y = 0;
         camera.position.z = 4;
         lookAtTarget.set(0, 0, 0);
 
-    } else if (scrollRatio <= PHASE_ZOOM_END) {
-        // [PHASE 3] 상태 유지 + 줌인
+    } else if (scrollRatio <= PHASE_ZOOM_END && !isLastPageScroll) {
+        // [PHASE 3] 줌인 (마지막 페이지 스크롤이 아닐 때만)
         const phaseRatio = (scrollRatio - PHASE_FLIP_END) / (PHASE_ZOOM_END - PHASE_FLIP_END);
-        const easedZoomRatio = phaseRatio * phaseRatio * (3 - 2 * phaseRatio); 
+        const easedZoomRatio = phaseRatio * phaseRatio * (3 - 2 * phaseRatio);
+        
+        if (isBookFlipAudioPlaying) {
+            bookFlipAudio.pause();
+            bookFlipAudio.currentTime = 0;
+            isBookFlipAudioPlaying = false;
+        }
         
         pages.forEach((pageGroup, i) => {
             if (i < middleIndex) {
@@ -315,15 +332,25 @@ function updateBookAnimation() {
             }
         });
         
-        // 카메라: 중앙 유지하면서 줌인 (4.0 -> 1.5)
-        const startZoom = 4.0;
-        const endZoom = 1.5;
-        
-        camera.position.x = 0;
-        camera.position.y = 0;
-        camera.position.z = lerp(startZoom, endZoom, easedZoomRatio);
+        camera.position.z = lerp(4.0, 1.5, easedZoomRatio);
         lookAtTarget.set(0, 0, 0);
 
+    } else if (scrollRatio <= PHASE_ZOOM_OUT_END) {
+        // [PHASE 4] 줌아웃만 (페이지는 펼쳐진 상태 유지)
+        const phaseRatio = (scrollRatio - PHASE_ZOOM_END) / (PHASE_ZOOM_OUT_END - PHASE_ZOOM_END);
+        const easedRatio = phaseRatio * phaseRatio * (3 - 2 * phaseRatio); // Smoothstep easing
+        
+        // 페이지 상태 유지 (펼쳐진 상태)
+        pages.forEach((pageGroup, i) => {
+            if (i < middleIndex) {
+                pageGroup.rotation.y = -Math.PI;
+                pageGroup.position.z = -1 * (middleIndex - 1 - i) * pageThickness;
+            } else {
+                pageGroup.rotation.y = 0;
+                pageGroup.position.z = -1 * (i - middleIndex) * pageThickness;
+            }
+        });
+        
         // 책은 보이게 유지
         book.traverse((child) => {
             if (child.isMesh && child.material) {
@@ -338,43 +365,119 @@ function updateBookAnimation() {
                 }
             }
         });
-
-    } else {
-        // [PHASE 4] 책 페이드 아웃 + .book-content 페이드 인
-        const phaseRatio = (scrollRatio - PHASE_ZOOM_END) / (1 - PHASE_ZOOM_END);
-        const easedFadeRatio = phaseRatio * phaseRatio * (3 - 2 * phaseRatio); // Smoothstep easing
         
-        // 페이지 상태 유지
-        pages.forEach((pageGroup, i) => {
-            if (i < middleIndex) {
-                pageGroup.rotation.y = -Math.PI;
-                pageGroup.position.z = -1 * (middleIndex - 1 - i) * pageThickness;
-            } else {
-                pageGroup.rotation.y = 0;
-                pageGroup.position.z = -1 * (i - middleIndex) * pageThickness;
-            }
-        });
-        
-        // 책 페이드 아웃
-        book.traverse((child) => {
-            if (child.isMesh && child.material) {
-                if (Array.isArray(child.material)) {
-                    child.material.forEach(mat => {
-                        mat.opacity = lerp(1, 0, easedFadeRatio);
-                        mat.transparent = true;
-                    });
-                } else {
-                    child.material.opacity = lerp(1, 0, easedFadeRatio);
-                    child.material.transparent = true;
-                }
-            }
-        });
-        
-        // 카메라는 최종 줌인 상태 유지
+        // 카메라: 줌인 상태(1.5)에서 줌아웃(4.0)까지
+        const startZoom = 1.5;
+        const endZoom = 4.0;
         camera.position.x = 0;
         camera.position.y = 0;
-        camera.position.z = 1.5;
+        camera.position.z = lerp(startZoom, endZoom, easedRatio);
         lookAtTarget.set(0, 0, 0);
+        
+        // 마지막 페이지 스크롤: .book-content 페이드아웃 + 책 페이드인
+        if (isLastPageScroll) {
+            // 마지막 페이지 스크롤 시작 시 즉시 줌인 상태로 설정
+            if (scrollRatio <= PHASE_ZOOM_END + 0.001 || phaseRatio <= 0) {
+                camera.position.z = 1.5; // 즉시 줌인 상태
+                container.style.opacity = 1; // 즉시 보이게
+                // 책 위치와 각도도 즉시 초기화
+                book.position.x = 0;
+                book.position.y = 0;
+                book.position.z = 0;
+                book.rotation.y = 0;
+                book.rotation.x = 0;
+            } else {
+                const zoomOutFadeRatio = Math.min(1, Math.max(0, phaseRatio) * 2); // 줌아웃 진행에 따라 페이드
+                if(bookContent) {
+                    bookContent.style.opacity = 1 - zoomOutFadeRatio;
+                }
+                container.style.opacity = Math.max(0, zoomOutFadeRatio);
+            }
+            container.style.transition = 'opacity 0.5s ease-out';
+        }
+        
+    } else {
+        // [PHASE 5] 책 닫히기 (수정: 두께 보존 및 스태킹 연결)
+        const phaseRatio = Math.min(1, (scrollRatio - PHASE_ZOOM_OUT_END) / (PHASE_CLOSE_END - PHASE_ZOOM_OUT_END));
+        const easedRatio = Math.min(1, phaseRatio * phaseRatio * (3 - 2 * phaseRatio)); 
+        
+        const totalItems = numPages + 2; 
+        
+        // 왼쪽 페이지들이 쌓인 최종 높이 (오른쪽 페이지가 이 위로 올라가야 함)
+        const leftStackHeight = middleIndex * pageThickness;
+
+        pages.forEach((pageGroup, i) => {
+            const isBackCover = (i === totalItems - 1);
+            
+            if (i < middleIndex) {
+                // [왼쪽 페이지 수정]
+                // 기존 * 0.1 제거 -> 원래 두께대로 차곡차곡 쌓이게 변경
+                pageGroup.rotation.y = -Math.PI;
+                const leftStackZ = -1 * (middleIndex - 1 - i) * pageThickness;
+                const closedZ = i * pageThickness; // 압축 없이 정직하게 쌓음
+                
+                pageGroup.position.z = lerp(leftStackZ, closedZ, easedRatio);
+            } else {
+                // [오른쪽 페이지 수정]
+                // 회전하면서 '왼쪽 페이지 더미' 위로 착륙해야 함
+                
+                // 1. 회전 각도
+                const currentRotation = lerp(0, -Math.PI, easedRatio);
+                pageGroup.rotation.y = currentRotation;
+
+                // 2. 중심으로부터의 거리
+                let distFromCenter = (i - middleIndex) * pageThickness;
+                if (isBackCover) distFromCenter += coverThickness; 
+
+                // 3. 베이스 높이 조정 (핵심)
+                // 책이 닫힐수록 오른쪽 페이지들의 기준점(0)이 왼쪽 페이지 두께만큼 올라가야 함
+                const currentBaseZ = lerp(0, leftStackHeight, easedRatio);
+                
+                // 4. 최종 위치 계산 (베이스 높이 + 회전 곡선)
+                // Open(cos=1): 0 - dist = -dist (아래로 펼쳐짐)
+                // Closed(cos=-1): leftStackHeight - (-dist) = height + dist (위로 쌓임)
+                pageGroup.position.z = currentBaseZ - (distFromCenter * Math.cos(currentRotation));
+            }
+        });
+
+        // 닫힌 책의 위치와 각도 조정 (기존과 동일하되 미세 조정 가능)
+        const startBookPos = { x: book.position.x, y: book.position.y, z: book.position.z };
+        const startBookRotY = book.rotation.y;
+        const startBookRotX = book.rotation.x;
+        const startCamPos = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+        const startLookAt = { x: lookAtTarget.x, y: lookAtTarget.y, z: lookAtTarget.z };
+        
+        const closedBookPos = { x: 1.1, y: 0, z: 0.5 };
+        const closedBookRotY = 0; 
+        const closedBookRotX = 0; 
+        const closedCamPos = { x: -0.6, y: -0.1, z: 4.5 };
+        const closedLookAt = { x: -pageWidth * 0.2, y: 0, z: 0 }; 
+        
+        book.position.x = lerp(startBookPos.x, closedBookPos.x, easedRatio);
+        book.position.y = lerp(startBookPos.y, closedBookPos.y, easedRatio);
+        book.position.z = lerp(startBookPos.z, closedBookPos.z, easedRatio);
+        book.rotation.y = lerp(startBookRotY, closedBookRotY, easedRatio);
+        book.rotation.x = lerp(startBookRotX, closedBookRotX, easedRatio);
+        
+        camera.position.x = lerp(startCamPos.x, closedCamPos.x, easedRatio);
+        camera.position.y = lerp(startCamPos.y, closedCamPos.y, easedRatio);
+        camera.position.z = lerp(startCamPos.z, closedCamPos.z, easedRatio);
+        
+        lookAtTarget.set(
+            lerp(startLookAt.x, closedLookAt.x, easedRatio),
+            lerp(startLookAt.y, closedLookAt.y, easedRatio),
+            lerp(startLookAt.z, closedLookAt.z, easedRatio)
+        );
+        
+        // 마지막 페이지 스크롤: .book-content 페이드아웃 + 책 페이드인
+        if (isLastPageScroll) {
+            const closeFadeRatio = Math.min(1, phaseRatio * 1.5); // 닫히기 진행에 따라 페이드
+            if(bookContent) {
+                bookContent.style.opacity = 1 - closeFadeRatio;
+            }
+            container.style.opacity = closeFadeRatio;
+            container.style.transition = 'opacity 0.5s ease-out';
+        }
     }
 }
 

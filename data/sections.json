@@ -90,7 +90,37 @@
         "imgPath03": "img/Weekend-Cafe-Study.jpg",
         "imgPath04": "img/Hammock.jpg",
         "text": "신기한 VR도 하고,\n우리 학과 학우들의 프로필 사진 촬영도 진행하고,\n팀원들과 졸업전시 웹도 구현하고,\n그러다 지치면 잠깐 해먹에 누워 숨도 돌리고...\n이런 하루들이 계속 반복됐어요.",
-        "textPosition": "top-right"
+        "textPosition": "top-right",
+        "svgPositions": [
+            {
+                "left": "17%",
+                "top": "0",
+                "rotate": 0,
+                "transformOrigin": "center center",
+                "heightMultiplier": 0.8
+            },
+            {
+                "right": "14%",
+                "top": "6%",
+                "rotate": -10,
+                "transformOrigin": "center center",
+                "heightMultiplier": 0.7
+            },
+            {
+                "left": "32%",
+                "bottom": "5%",
+                "rotate": 0,
+                "transformOrigin": "center center",
+                "heightMultiplier": 0.5
+            },
+            {
+                "left": "-2%",
+                "bottom": "1%",
+                "rotate": -8,
+                "transformOrigin": "center center",
+                "heightMultiplier": 0.8
+            }
+        ]
     },
     {
         "id": "Final-Practical-Exam",
@@ -110,7 +140,7 @@
         "id": "Wrap-up",
         "svgPath": "svg/Wrap-up.svg",
         "imgPath": "img/Wrap-up.jpg",
-        "text": "밤새 과제하고 통학하는 게 힘들기만 했다고 생각했는데,\n돌이켜보니 즐거웠던 순간이 더 많았습니다.\n졸업을 하면 저는 프론트엔드 개발자로 나아가고 싶습니다.\n사람들이 직접 경험할 수 있는, 눈을 반짝이게 하는 동적인 웹을 만들고 싶습니다.\n그때가 되면 이 끊기지 않는 선이 또 다른 저를 그리며, 새로운 챕터를 만들고 있겠죠?\n당신의 선도, 어디선가 계속 이어지고 있기를 바랍니다.\n다들 안녕히 계세요!!",
+        "text": "밤새 과제하고 통학하는 게 힘들기만 했다고 생각했는데,\n돌이켜보니 즐거웠던 순간이 더 많았습니다.\n졸업을 하면 저는 프론트엔드 개발자로 나아가고 싶습니다.\n사람들이 직접 경험할 수 있는, 눈을 반짝이게 하는 동적인 웹을 만들고 싶습니다.\n그때가 되면 이 끊기지 않는 선이 또 다른 저를 그리며, 새로운 챕터를 만들고 있겠죠?\n당신의 선도, 어디선가 계속 이어지고 있기를 바랍니다.\n다들 안녕히 계세요!",
         "textPosition": "top-right"
     }
 ]

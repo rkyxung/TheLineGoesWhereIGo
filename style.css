@@ -7,7 +7,10 @@
 
 body {
     margin: 0;
-    background-color: #fff;
+    background-image: url('img/paper_texture2.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
     background-attachment: fixed;
     color: #000;
     font-family: 'NanumHandwriting', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -24,6 +27,7 @@ body {
     transform-style: preserve-3d;
     overflow: hidden;
     pointer-events: none;
+    z-index: 1000;
 }
 
 .book-content[style*="opacity: 1"],
@@ -46,10 +50,14 @@ body {
 .page-layer.current {
     z-index: 2;
     position: relative;
+    visibility: visible;
+    opacity: 1;
 }
 
 .page-layer.next {
     z-index: 1;
+    visibility: hidden;
+    opacity: 0;
 }
 
 .section-container {
@@ -140,6 +148,8 @@ body {
 #scroll-container {
     height: 2000vh;
     position: relative;
+    z-index: 1;
+    background-color: #fff;
 }
 
 .description {
@@ -155,6 +165,37 @@ body {
     z-index: 100;
     transition: opacity 0.5s;
     font-family: 'NanumHandwriting', sans-serif;
+}
+
+.audio-toggle {
+    position: fixed;
+    top: 4.5vh;
+    right: 2.5vw;
+    width: 6vw;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    z-index: 10000;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s ease;
+}
+
+
+.audio-toggle:hover {
+    transform: scale(1.07);
+}
+
+.audio-toggle:active {
+    transform: scale(0.95);
+}
+
+.audio-icon {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
 }
 
 #scroll-guide {
@@ -224,9 +265,9 @@ body {
     content: '→';
     position: absolute;
     top: 50%;
-    right: 1.042vw;
+    right: 1.1vw;
     transform: translateY(-50%) rotateY(-15deg);
-    font-size: 1.667vw;
+    font-size: 2.5vw;
     color: rgba(0, 0, 0, 0.6);
     pointer-events: none;
     transition: transform 0.3s ease, opacity 0.3s ease;
@@ -239,15 +280,13 @@ body {
 
 .brush-drawing {
     position: absolute;
-    bottom: 5%;
+    bottom: -2%;
     right: 5%;
     z-index: 10001;
     pointer-events: auto;
     cursor: grab;
     animation: fadeIn 0.5s ease-in;
     display: block;
-    width: 15.625vw;
-    height: auto;
     opacity: 1;
 }
 
@@ -256,7 +295,7 @@ body {
 }
 
 .brush-drawing svg {
-    width: 100%;
+    width: 20vw;
     height: auto;
     display: block;
     opacity: 1;

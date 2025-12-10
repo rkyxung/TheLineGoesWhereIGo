@@ -9,12 +9,16 @@ let typingComplete = false;
 let isPageTurning = false; // 페이지 넘김 중인지 확인
 let brushDrawingShown = false; // 브러쉬 드로잉이 표시되었는지
 let brushDrawingScrollY = 0; // 브러쉬 드로잉이 나타난 시점의 스크롤 위치
+let lastPageReached = false; // 마지막 페이지 도달 여부
+let lastPageScrollStart = 0; // 마지막 페이지 이후 스크롤 시작 위치
 
 // 오디오 관리
 let pencilWritingAudio = null; // 텍스트 타이핑 사운드
 let pageTurnAudio = null; // 페이지 넘김 사운드
 let drawingAudio = null; // SVG 드로잉 사운드
 let lastSvgProgress = 0; // 이전 SVG 진행률 (역재생 감지용)
+
+// 오디오 정지 함수는 audio-toggle.js로 이동됨
 
 // 상수 설정
 const SVG_START = 0.85; // 책 줌인 이후 드로잉 시작 지점
@@ -95,9 +99,14 @@ function updateScrollHeight() {
     // sections가 아직 로드되지 않았으면 기본값 사용
     const totalSections = sections && sections.length > 0 ? sections.length : 1;
     const BOOK_ANIMATION_HEIGHT = 600; // 책 애니메이션 구간 (600vh) - book.js와 동일
-    const bookAnimationHeight = window.innerHeight * (BOOK_ANIMATION_HEIGHT / 100);
-    const sectionsHeight = window.innerHeight * (SECTION_SCROLL_RANGE / 100) * totalSections;
-    const totalHeight = bookAnimationHeight + sectionsHeight;
+    const bookAnimationEnd = window.innerHeight * (BOOK_ANIMATION_HEIGHT / 100) * SVG_START;
+    
+    // 마지막 섹션의 끝 위치 계산
+    const lastSectionRange = getSectionScrollRange(totalSections - 1);
+    // 추가 스크롤 공간: 책 줌아웃 + 닫히기 애니메이션을 위한 추가 높이 (bookr.js와 동일하게 1200vh)
+    // PHASE_CLOSE_END가 1.6이므로 더 많은 스크롤 공간 필요
+    const additionalScrollHeight = window.innerHeight * 12; // 1200vh
+    const totalHeight = lastSectionRange.end + additionalScrollHeight;
     
     const scrollContainer = document.getElementById('scroll-container');
     if (scrollContainer) {
@@ -135,6 +144,11 @@ function loadSection(index, isNextPage = false) {
     if (!pageLayer) {
         pageLayer = document.createElement('div');
         pageLayer.className = `page-layer ${isNextPage ? 'next' : 'current'}`;
+        if (isNextPage) {
+            // .next 레이어는 완전히 숨김 (깜빡임 방지)
+            pageLayer.style.visibility = 'hidden';
+            pageLayer.style.opacity = '0';
+        }
         bookContent.appendChild(pageLayer);
     }
     
@@ -167,12 +181,29 @@ function loadSection(index, isNextPage = false) {
         isPageTurning = false;
         brushDrawingShown = false;
     } else {
-        // 다음 페이지일 때는 기존 내용 제거 (새로 로드하기 위해)
+        // 다음 페이지일 때는 완전히 숨김 (깜빡임 방지)
+        pageLayer.style.visibility = 'hidden';
+        pageLayer.style.opacity = '0';
+        pageLayer.style.transition = 'none'; // 즉시 숨김
         pageLayer.innerHTML = '';
     }
     
     // SVG가 없는 경우 (텍스트만)
     if (!section.svgPath && !section.svgPath01) {
+        // 상태 초기화
+        if (!isNextPage) {
+            sectionState = SectionState.TYPING;
+            svgPaths = [];
+            totalPathLength = 0;
+            typingText = section.text || '';
+            typingIndex = 0;
+            typingComplete = false;
+            currentSectionIndex = index;
+            pageTurnTriggered = false;
+            isPageTurning = false;
+            brushDrawingShown = false;
+        }
+        
         pageLayer.innerHTML = `
             <div class="section-container" data-section-id="${section.id}">
                 <div class="svg-container"></div>
@@ -185,9 +216,16 @@ function loadSection(index, isNextPage = false) {
             const textPosition = section.textPosition || 'bottom-center';
             setTextPosition(textContainer, textPosition);
         }
+        // 다음 페이지인 경우 내용 로드 후 표시
+        if (isNextPage) {
+            requestAnimationFrame(() => {
+                pageLayer.style.visibility = 'visible';
+                pageLayer.style.transition = 'opacity 0.3s ease-in';
+                pageLayer.style.opacity = '1';
+            });
+        }
         // 텍스트만 표시하는 섹션은 바로 타이핑 시작 (다음 페이지가 아닐 때만)
-        if (!isNextPage) {
-            sectionState = SectionState.TYPING;
+        if (!isNextPage && typingText) {
             startSectionAnimation();
         }
         return;
@@ -234,6 +272,21 @@ function loadSection(index, isNextPage = false) {
         
         // 이미지 컨테이너 설정
         const imageContainer = pageLayer.querySelector('.image-container');
+        let imagesLoadedCount = 0;
+        const totalImages = imgPathsToLoad.length;
+        let svgLoaded = false;
+        
+        // 다음 페이지인 경우 모든 콘텐츠 로딩 완료 후 표시
+        const checkAndShowNextPage = () => {
+            if (isNextPage && imagesLoadedCount === totalImages && svgLoaded) {
+                requestAnimationFrame(() => {
+                    pageLayer.style.visibility = 'visible';
+                    pageLayer.style.transition = 'opacity 0.3s ease-in';
+                    pageLayer.style.opacity = '1';
+                });
+            }
+        };
+        
         if (imageContainer && imgPathsToLoad.length > 0) {
             imageContainer.style.position = 'absolute';
             imageContainer.style.top = '0';
@@ -251,45 +304,87 @@ function loadSection(index, isNextPage = false) {
                 img.style.opacity = '0';
                 img.style.pointerEvents = 'none';
                 img.onload = () => {
-                    // 이미지의 실제 크기 가져오기
+                    const isFinalSemester02 = section.id === 'Final-Semester02';
                     const naturalWidth = img.naturalWidth;
                     const naturalHeight = img.naturalHeight;
                     const aspectRatio = naturalWidth / naturalHeight;
-                    
-                    // 컨테이너 크기 기준 (화면 너비의 약 40%를 기준으로, 비율 유지)
-                    const baseWidth = window.innerWidth * 0.4; // 화면 너비의 40%
+
+                    let heightMultiplier = 1.0;
+                    if (isFinalSemester02) {
+                        const svgPositions = section.svgPositions || [];
+                        const svgPosition = svgPositions[i] || {};
+                        heightMultiplier = svgPosition.heightMultiplier !== undefined ? svgPosition.heightMultiplier : 0.3;
+                    }
+
+                    const baseWidth = window.innerWidth * 0.4;
                     const containerWidth = baseWidth;
-                    const containerHeight = containerWidth / aspectRatio;
-                    
-                    // 컨테이너 크기 설정 (각 이미지의 실제 비율에 맞춤)
+                    const containerHeight = (containerWidth / aspectRatio) * heightMultiplier;
+
                     imgWrapper.style.width = `${containerWidth}px`;
                     imgWrapper.style.height = `${containerHeight}px`;
-                    
-                    // 겹치게 배치하기 위해 약간씩 오프셋 적용
-                    const offsetX = (i % 2) * (containerWidth * 0.1); // 좌우 약간씩 오프셋
-                    const offsetY = Math.floor(i / 2) * (containerHeight * 0.1); // 상하 약간씩 오프셋
-                    const centerX = (window.innerWidth - containerWidth) / 2;
-                    const centerY = (window.innerHeight - containerHeight) / 2;
-                    
-                    imgWrapper.style.left = `${centerX + offsetX}px`;
-                    imgWrapper.style.top = `${centerY + offsetY}px`;
-                    
-                    // 이미지가 컨테이너를 꽉 채우도록
+
+                    if (isFinalSemester02) {
+                        const svgPositions = section.svgPositions || [];
+                        const svgPosition = svgPositions[i] || {};
+
+                        if (svgPosition.left !== undefined) {
+                            imgWrapper.style.left = typeof svgPosition.left === 'string' ? svgPosition.left : `${svgPosition.left}px`;
+                        } else if (svgPosition.right !== undefined) {
+                            imgWrapper.style.right = typeof svgPosition.right === 'string' ? svgPosition.right : `${svgPosition.right}px`;
+                        } else {
+                            const offsetX = (i % 2) * (containerWidth * 0.1);
+                            const offsetY = Math.floor(i / 2) * (containerHeight * 0.1);
+                            const centerX = (window.innerWidth - containerWidth) / 2;
+                            const centerY = (window.innerHeight - containerHeight) / 2;
+                            imgWrapper.style.left = `${centerX + offsetX}px`;
+                            imgWrapper.style.top = `${centerY + offsetY}px`;
+                        }
+
+                        if (svgPosition.top !== undefined) {
+                            imgWrapper.style.top = typeof svgPosition.top === 'string' ? svgPosition.top : `${svgPosition.top}px`;
+                        } else if (svgPosition.bottom !== undefined) {
+                            imgWrapper.style.bottom = typeof svgPosition.bottom === 'string' ? svgPosition.bottom : `${svgPosition.bottom}px`;
+                        }
+
+                        if (svgPosition.rotate !== undefined) {
+                            imgWrapper.style.transform = `rotate(${svgPosition.rotate}deg)`;
+                            imgWrapper.style.transformOrigin = svgPosition.transformOrigin || 'center center';
+                        }
+                    } else {
+                        const offsetX = (i % 2) * (containerWidth * 0.1);
+                        const offsetY = Math.floor(i / 2) * (containerHeight * 0.1);
+                        const centerX = (window.innerWidth - containerWidth) / 2;
+                        const centerY = (window.innerHeight - containerHeight) / 2;
+                        imgWrapper.style.left = `${centerX + offsetX}px`;
+                        imgWrapper.style.top = `${centerY + offsetY}px`;
+                    }
+
                     img.style.width = '100%';
                     img.style.height = '100%';
                     img.style.objectFit = 'contain';
+                    
+                    // 이미지 로딩 완료 카운터 증가
+                    imagesLoadedCount++;
+                    checkAndShowNextPage();
                 };
                 img.onerror = () => {
+                    // 에러가 발생해도 카운터 증가 (로딩 완료로 간주)
+                    imagesLoadedCount++;
+                    checkAndShowNextPage();
                 };
                 imgWrapper.appendChild(img);
                 imageContainer.appendChild(imgWrapper);
             });
+        } else if (isNextPage && totalImages === 0) {
+            // 이미지가 없는 경우 SVG 로딩 완료를 기다림 (SVG 로딩 후 checkAndShowNextPage 호출됨)
         }
         
         // 모든 SVG 로드
         Promise.all(svgPathsToLoad.map(path => 
             fetch(path).then(response => response.text())
         )).then(svgTexts => {
+            svgLoaded = true;
+            checkAndShowNextPage();
             svgTexts.forEach((svgText, i) => {
                 const svgWrapper = document.createElement('div');
                 svgWrapper.style.position = 'absolute'; // 절대 위치로 겹치게 배치
@@ -316,23 +411,69 @@ function loadSection(index, isNextPage = false) {
                     
                     const aspectRatio = svgWidth / svgHeight;
                     
+                    // Final-Semester02 섹션의 경우 SVG 높이를 줄임
+                    const isFinalSemester02 = section.id === 'Final-Semester02';
+                    
+                    // 각 SVG의 개별 크기 설정 (Final-Semester02의 경우)
+                    let heightMultiplier = 1.0; // 기본값
+                    if (isFinalSemester02) {
+                        const svgPositions = section.svgPositions || [];
+                        const svgPosition = svgPositions[i] || {};
+                        // 개별 heightMultiplier가 있으면 사용, 없으면 기본값 0.3 사용
+                        heightMultiplier = svgPosition.heightMultiplier !== undefined ? svgPosition.heightMultiplier : 0.3;
+                    }
+                    
                     // 컨테이너 크기 기준 (화면 너비의 약 40%를 기준으로, 비율 유지)
                     const baseWidth = window.innerWidth * 0.4; // 화면 너비의 40%
                     const containerWidth = baseWidth;
-                    const containerHeight = containerWidth / aspectRatio;
+                    const containerHeight = (containerWidth / aspectRatio) * heightMultiplier;
                     
                     // 컨테이너 크기 설정 (각 SVG의 실제 비율에 맞춤)
                     svgWrapper.style.width = `${containerWidth}px`;
                     svgWrapper.style.height = `${containerHeight}px`;
                     
-                    // 겹치게 배치하기 위해 약간씩 오프셋 적용 (이미지와 동일한 위치)
-                    const offsetX = (i % 2) * (containerWidth * 0.1); // 좌우 약간씩 오프셋
-                    const offsetY = Math.floor(i / 2) * (containerHeight * 0.1); // 상하 약간씩 오프셋
-                    const centerX = (window.innerWidth - containerWidth) / 2;
-                    const centerY = (window.innerHeight - containerHeight) / 2;
-                    
-                    svgWrapper.style.left = `${centerX + offsetX}px`;
-                    svgWrapper.style.top = `${centerY + offsetY}px`;
+                    // Final-Semester02 섹션의 경우 각 SVG마다 개별 위치와 회전 적용
+                    if (isFinalSemester02) {
+                        // 각 SVG의 개별 위치와 회전 설정
+                        const svgPositions = section.svgPositions || [];
+                        const svgPosition = svgPositions[i] || {};
+                        
+                        // 위치 설정 (left, top, right, bottom 중 사용)
+                        if (svgPosition.left !== undefined) {
+                            svgWrapper.style.left = typeof svgPosition.left === 'string' ? svgPosition.left : `${svgPosition.left}px`;
+                        } else if (svgPosition.right !== undefined) {
+                            svgWrapper.style.right = typeof svgPosition.right === 'string' ? svgPosition.right : `${svgPosition.right}px`;
+                        } else {
+                            // 기본값: 중앙 기준 오프셋
+                            const offsetX = (i % 2) * (containerWidth * 0.1);
+                            const offsetY = Math.floor(i / 2) * (containerHeight * 0.1);
+                            const centerX = (window.innerWidth - containerWidth) / 2;
+                            const centerY = (window.innerHeight - containerHeight) / 2;
+                            svgWrapper.style.left = `${centerX + offsetX}px`;
+                            svgWrapper.style.top = `${centerY + offsetY}px`;
+                        }
+                        
+                        if (svgPosition.top !== undefined) {
+                            svgWrapper.style.top = typeof svgPosition.top === 'string' ? svgPosition.top : `${svgPosition.top}px`;
+                        } else if (svgPosition.bottom !== undefined) {
+                            svgWrapper.style.bottom = typeof svgPosition.bottom === 'string' ? svgPosition.bottom : `${svgPosition.bottom}px`;
+                        }
+                        
+                        // 회전 설정
+                        if (svgPosition.rotate !== undefined) {
+                            svgWrapper.style.transform = `rotate(${svgPosition.rotate}deg)`;
+                            svgWrapper.style.transformOrigin = svgPosition.transformOrigin || 'center center';
+                        }
+                    } else {
+                        // 기본 배치 (겹치게 배치하기 위해 약간씩 오프셋 적용)
+                        const offsetX = (i % 2) * (containerWidth * 0.1); // 좌우 약간씩 오프셋
+                        const offsetY = Math.floor(i / 2) * (containerHeight * 0.1); // 상하 약간씩 오프셋
+                        const centerX = (window.innerWidth - containerWidth) / 2;
+                        const centerY = (window.innerHeight - containerHeight) / 2;
+                        
+                        svgWrapper.style.left = `${centerX + offsetX}px`;
+                        svgWrapper.style.top = `${centerY + offsetY}px`;
+                    }
                     
                     // SVG가 컨테이너를 꽉 채우도록
                     svg.style.width = '100%';
@@ -402,6 +543,20 @@ function loadSection(index, isNextPage = false) {
                 </div>
             `;
             
+            let imageLoaded = false;
+            const hasImage = section.imgPath;
+            
+            // 다음 페이지인 경우 모든 콘텐츠 로딩 완료 후 표시
+            const checkAndShowNextPageSingle = () => {
+                if (isNextPage && (!hasImage || imageLoaded)) {
+                    requestAnimationFrame(() => {
+                        pageLayer.style.visibility = 'visible';
+                        pageLayer.style.transition = 'opacity 0.3s ease-in';
+                        pageLayer.style.opacity = '1';
+                    });
+                }
+            };
+            
             // 이미지 컨테이너 설정 (SVG 뒤에 배치)
             const imageContainer = pageLayer.querySelector('.image-container');
             if (imageContainer && section.imgPath) {
@@ -416,7 +571,18 @@ function loadSection(index, isNextPage = false) {
                 img.style.transform = 'translate(-50%, -50%)';
                 img.style.opacity = '0';
                 img.style.pointerEvents = 'none';
+                img.onload = () => {
+                    imageLoaded = true;
+                    checkAndShowNextPageSingle();
+                };
+                img.onerror = () => {
+                    imageLoaded = true; // 에러도 로딩 완료로 간주
+                    checkAndShowNextPageSingle();
+                };
                 imageContainer.appendChild(img);
+            } else if (isNextPage) {
+                // 이미지가 없는 경우 SVG 로딩 완료 후 표시
+                checkAndShowNextPageSingle();
             }
             
             // 텍스트 위치 설정
@@ -481,9 +647,16 @@ function loadSection(index, isNextPage = false) {
                     });
                 });
                 startSectionAnimation();
+            } else {
+                // 다음 페이지인 경우 SVG 로딩 완료 후 표시
+                checkAndShowNextPageSingle();
             }
         })
         .catch(error => {
+            // 에러 발생 시에도 다음 페이지는 표시
+            if (isNextPage) {
+                checkAndShowNextPageSingle();
+            }
         });
 }
 
@@ -491,6 +664,40 @@ let scrollEventListenerAdded = false; // 스크롤 이벤트 리스너 중복 �
 let updateSVGAnimation = null; // updateSVGAnimation 함수 참조
 
 function startSectionAnimation() {
+    // SVG가 없는 경우 (텍스트만) - 자동 텍스트 타이핑 시작
+    if (svgPaths.length === 0 && typingText) {
+        // 자동 텍스트 타이핑 애니메이션
+        let textProgress = 0;
+        const TEXT_TYPING_DURATION = 5500; // 5.5초 동안 타이핑
+        const startTime = Date.now();
+        
+        const animateText = () => {
+            if (sectionState !== SectionState.TYPING) return;
+            
+            const elapsed = Date.now() - startTime;
+            textProgress = Math.min(1, elapsed / TEXT_TYPING_DURATION);
+            
+            animateTextTypingForTextOnly(textProgress);
+            
+            if (textProgress < 1) {
+                requestAnimationFrame(animateText);
+            } else {
+                // 텍스트 타이핑 완료 - 자동으로 다음 페이지로 넘어감
+                if (typingComplete && !isPageTurning) {
+                    setTimeout(() => {
+                        // 다시 확인 (페이지 넘김 중이 아닐 때만)
+                        if (!isPageTurning && currentSectionIndex + 1 < sections.length) {
+                            turnPage();
+                        }
+                    }, 1500); // 1.5초 후 자동 넘김
+                }
+            }
+        };
+        
+        requestAnimationFrame(animateText);
+        return;
+    }
+    
     // SVG 그리기 애니메이션 시작
     animateSVGPaths();
 }
@@ -553,13 +760,8 @@ function animateSVGPaths() {
         // 섹션 시작 지점 확인 (빠르게 시작)
         const SECTION_START = 0.02;
         
-        // SVG가 없는 섹션 (텍스트만) - 바로 다음 페이지로 넘어감
+        // SVG가 없는 섹션 (텍스트만) - 텍스트 타이핑은 startSectionAnimation에서 처리
         if (svgPaths.length === 0) {
-            if (!typingComplete) {
-                typingComplete = true;
-                sectionState = SectionState.PAGE_TURN;
-                showPageTurnIndicator();
-            }
             return;
         }
         
@@ -588,11 +790,10 @@ function animateSVGPaths() {
         const DRAWING_SOUND_START = 0.1;
         const DRAWING_SOUND_END = 0.9;
         
-        if (svgProgress >= DRAWING_SOUND_START && svgProgress < DRAWING_SOUND_END) {
-            if (!drawingAudio) {
-                drawingAudio = new Audio('audio/drawing.mp3');
-                drawingAudio.loop = true;
-                drawingAudio.volume = 0.1;
+        // 오디오 토글이 활성화된 경우에만 재생
+        if (svgProgress >= DRAWING_SOUND_START && svgProgress < DRAWING_SOUND_END && window.isAudioEnabled) {
+            if (!drawingAudio && window.createDrawingAudio) {
+                drawingAudio = window.createDrawingAudio(1);
                 drawingAudio.play().catch(error => {
                     console.error('드로잉 사운드 재생 실패:', error);
                 });
@@ -607,13 +808,12 @@ function animateSVGPaths() {
         }
         
         // 역재생 감지 (svgProgress가 감소하는 경우)
+        // 오디오 토글이 활성화된 경우에만 재생
         const isReversing = svgProgress < lastSvgProgress;
-        if (isReversing && svgProgress >= DRAWING_SOUND_START && svgProgress < DRAWING_SOUND_END) {
+        if (isReversing && svgProgress >= DRAWING_SOUND_START && svgProgress < DRAWING_SOUND_END && window.isAudioEnabled) {
             // 역재생 중에도 사운드 재생 (진행률 범위 내에서만)
-            if (!drawingAudio) {
-                drawingAudio = new Audio('audio/drawing.mp3');
-                drawingAudio.loop = true;
-                drawingAudio.volume = 0.4;
+            if (!drawingAudio && window.createDrawingAudio) {
+                drawingAudio = window.createDrawingAudio(0.4);
                 drawingAudio.play().catch(error => {
                     console.error('드로잉 사운드 재생 실패:', error);
                 });
@@ -710,10 +910,9 @@ function animateTextTyping(svgProgress) {
     const charsToShow = Math.floor(easedTextProgress * totalChars);
     
     // 텍스트 타이핑 시작 시 사운드 재생 (한 번만)
-    if (charsToShow > 0 && !pencilWritingAudio) {
-        pencilWritingAudio = new Audio('audio/pencil-writing.mp3');
-        pencilWritingAudio.loop = true;
-        pencilWritingAudio.volume = 1;
+    // 오디오 토글이 활성화된 경우에만 재생
+    if (charsToShow > 0 && !pencilWritingAudio && window.isAudioEnabled && window.createPencilWritingAudio) {
+        pencilWritingAudio = window.createPencilWritingAudio(0.7);
         pencilWritingAudio.play().catch(error => {
             console.error('펜슬 사운드 재생 실패:', error);
         });
@@ -727,8 +926,11 @@ function animateTextTyping(svgProgress) {
         typingComplete = true;
         sectionState = SectionState.PAGE_TURN;
         
-        // 타이핑 사운드 정지
-        if (pencilWritingAudio) {
+        // 타이핑 사운드 정지 (페이드 아웃)
+        if (pencilWritingAudio && window.fadeOutPencilWritingAudio) {
+            window.fadeOutPencilWritingAudio(pencilWritingAudio);
+            pencilWritingAudio = null;
+        } else if (pencilWritingAudio) {
             pencilWritingAudio.pause();
             pencilWritingAudio.currentTime = 0;
             pencilWritingAudio = null;
@@ -764,6 +966,17 @@ function animateTextTypingForTextOnly(textProgress) {
     const totalChars = typingText.length;
     const charsToShow = Math.floor(easedTextProgress * totalChars);
     
+    // 텍스트 타이핑 시작 시 사운드 재생 (한 번만)
+    // 오디오 토글이 활성화된 경우에만 재생
+    if (charsToShow > 0 && !pencilWritingAudio && window.isAudioEnabled) {
+        pencilWritingAudio = new Audio('audio/pencil-writing.mp3');
+        pencilWritingAudio.loop = true;
+        pencilWritingAudio.volume = 1;
+        pencilWritingAudio.play().catch(error => {
+            console.error('펜슬 사운드 재생 실패:', error);
+        });
+    }
+    
     // 텍스트 업데이트
     textContainer.textContent = typingText.substring(0, charsToShow);
     
@@ -771,8 +984,18 @@ function animateTextTypingForTextOnly(textProgress) {
     if (charsToShow >= totalChars && !typingComplete) {
         typingComplete = true;
         sectionState = SectionState.PAGE_TURN;
-        // 페이지 넘김 가능 표시 (오른쪽 가장자리 접힘 효과)
-        showPageTurnIndicator();
+        
+        // 타이핑 사운드 정지 (페이드 아웃)
+        if (pencilWritingAudio && window.fadeOutPencilWritingAudio) {
+            window.fadeOutPencilWritingAudio(pencilWritingAudio);
+            pencilWritingAudio = null;
+        } else if (pencilWritingAudio) {
+            pencilWritingAudio.pause();
+            pencilWritingAudio.currentTime = 0;
+            pencilWritingAudio = null;
+        }
+        
+        // 페이지 넘김 인디케이터 표시하지 않음 (자동으로 넘어감)
     }
 }
 
@@ -847,19 +1070,12 @@ function showBrushDrawing(pageLayer) {
             brushContainer.className = 'brush-drawing';
             brushContainer.innerHTML = svgText;
             
-            // SVG 스타일 설정
+            // SVG의 width와 height 속성 제거 (CSS에서 관리)
             const svg = brushContainer.querySelector('svg');
             if (svg) {
-                svg.style.width = '15.625vw'; // 2배 크기 (7.813vw * 2)
-                svg.style.height = 'auto';
-                svg.style.display = 'block';
-                svg.style.opacity = '1';
-                svg.style.filter = 'none';
-                svg.style.imageRendering = 'crisp-edges'; // 선명하게
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
             }
-            
-            // 브러쉬 컨테이너도 opacity 확인
-            brushContainer.style.opacity = '1';
             
             pageLayer.appendChild(brushContainer);
             
@@ -879,11 +1095,49 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
     let isDragging = false;
     const sectionContainer = pageLayer.querySelector('.section-container');
     if (!sectionContainer) return;
+
+    // --- Helper for fade-out logic ---
+    let fadeOutAnimation = null;
+    const startFadeOut = () => {
+        if (fadeOutAnimation) return;
+        
+        fadeOutAnimation = true;
+        const fadeOutRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        fadeOutRect.setAttribute('width', '100%');
+        fadeOutRect.setAttribute('height', '100%');
+        fadeOutRect.setAttribute('fill', 'black');
+        fadeOutRect.setAttribute('opacity', '0');
+        fadeOutRect.style.transition = 'opacity 1.5s ease-out';
+        mask.appendChild(fadeOutRect);
+        
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                fadeOutRect.setAttribute('opacity', '1');
+            });
+        });
+    };
+
+    const checkAndTriggerFadeOut = () => {
+        if (fadeOutAnimation) return;
+
+        const section = sections[currentSectionIndex];
+        const erasedRatio = getErasedRatio();
+        
+        if (section.id === 'Final-Semester02') {
+            if (erasedRatio >= 0.2) {
+                startFadeOut();
+            }
+        } else {
+            if (erasedRatio >= 0.5) {
+                startFadeOut();
+            }
+        }
+    };
     
     // 브러쉬 SVG의 viewBox: "0 0 1802 1599"
     // 붓 끝 위치 조정 (viewBox 내 좌표)
-    const BRUSH_TIP_X = 400; // x 좌표 (0~1802)
-    const BRUSH_TIP_Y = 320; // y 좌표 (0~1599)
+    const BRUSH_TIP_X = 100; // x 좌표 (0~1802)
+    const BRUSH_TIP_Y = 150; // y 좌표 (0~1599)
     const BRUSH_SVG_WIDTH = 1802;
     const BRUSH_SVG_HEIGHT = 1599;
     
@@ -989,7 +1243,7 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
         canvas.style.opacity = '0';
         canvas.setAttribute('data-img-index', index); // 이미지 인덱스 저장
         
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
@@ -1042,15 +1296,38 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
     };
     
     // SVG 컨테이너 좌표를 해당 이미지의 Canvas 좌표로 변환하는 함수
+    // getBoundingClientRect 결과 캐싱 (성능 최적화)
+    let cachedSvgRect = null;
+    let cachedImgRects = [];
+    let rectCacheTime = 0;
+    const RECT_CACHE_INTERVAL = 50; // 50ms마다 캐시 갱신
+    
     const toCanvasCoords = (svgX, svgY) => {
-        const svgRect = svgContainer.getBoundingClientRect();
+        const now = Date.now();
+        
+        // 캐시가 오래되었거나 없으면 갱신
+        if (!cachedSvgRect || now - rectCacheTime > RECT_CACHE_INTERVAL) {
+            cachedSvgRect = svgContainer.getBoundingClientRect();
+            cachedImgRects = actualImgs.map(img => img.getBoundingClientRect());
+            rectCacheTime = now;
+        }
+        
+        // 캐시가 실제 이미지 개수와 맞지 않으면 갱신
+        if (!cachedImgRects || cachedImgRects.length !== actualImgs.length) {
+            cachedSvgRect = svgContainer.getBoundingClientRect();
+            cachedImgRects = actualImgs.map(img => img.getBoundingClientRect());
+            rectCacheTime = Date.now();
+        }
         
         // 어떤 이미지 영역에 있는지 찾기
         for (let i = 0; i < actualImgs.length; i++) {
-            const img = actualImgs[i];
-            const imgRect = img.getBoundingClientRect();
-            const relativeLeft = imgRect.left - svgRect.left;
-            const relativeTop = imgRect.top - svgRect.top;
+            if (!cachedImgRects[i]) continue; // 안전 체크
+            
+            const imgRect = cachedImgRects[i];
+            if (!imgRect || !cachedSvgRect) continue; // 안전 체크
+            
+            const relativeLeft = imgRect.left - cachedSvgRect.left;
+            const relativeTop = imgRect.top - cachedSvgRect.top;
             const relativeRight = relativeLeft + imgRect.width;
             const relativeBottom = relativeTop + imgRect.height;
             
@@ -1066,10 +1343,10 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
         }
         
         // 어떤 이미지 영역에도 없으면 첫 번째 Canvas 기준으로 반환
-        if (actualImgs.length > 0) {
-            const imgRect = actualImgs[0].getBoundingClientRect();
-            const relativeLeft = imgRect.left - svgRect.left;
-            const relativeTop = imgRect.top - svgRect.top;
+        if (actualImgs.length > 0 && cachedImgRects[0] && cachedSvgRect) {
+            const imgRect = cachedImgRects[0];
+            const relativeLeft = imgRect.left - cachedSvgRect.left;
+            const relativeTop = imgRect.top - cachedSvgRect.top;
             return {
                 canvasIndex: 0,
                 x: svgX - relativeLeft,
@@ -1081,7 +1358,22 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
     };
     
     // 지워진 영역 비율 계산 함수 (모든 Canvas 합산)
+    let lastRatioCheckTime = 0;
+    let cachedErasedRatio = 0;
+    const RATIO_CHECK_INTERVAL = 1000; // 200ms마다 한 번만 계산
+    
     const getErasedRatio = () => {
+        // 페이드아웃이 이미 시작되었으면 더 이상 계산하지 않음
+        if (fadeOutAnimation) {
+            return cachedErasedRatio;
+        }
+        
+        const now = Date.now();
+        // 쓰로틀링: 일정 시간이 지나지 않았으면 캐시된 값 반환
+        if (now - lastRatioCheckTime < RATIO_CHECK_INTERVAL) {
+            return cachedErasedRatio;
+        }
+        
         if (totalArea === 0 || eraseCanvases.length === 0) {
             return 0;
         }
@@ -1109,29 +1401,10 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
         });
         
         const ratio = totalImagePixels > 0 ? totalErasedPixels / totalImagePixels : 0;
+        cachedErasedRatio = ratio;
+        lastRatioCheckTime = now;
+        
         return ratio;
-    };
-    
-    // 페이드아웃 애니메이션 (나머지 부분 스르륵 지워짐)
-    let fadeOutAnimation = null;
-    const startFadeOut = () => {
-        if (fadeOutAnimation) return;
-        
-        fadeOutAnimation = true;
-        const fadeOutRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        fadeOutRect.setAttribute('width', '100%');
-        fadeOutRect.setAttribute('height', '100%');
-        fadeOutRect.setAttribute('fill', 'black'); // 검은색 = 완전히 지워짐
-        fadeOutRect.setAttribute('opacity', '0');
-        fadeOutRect.style.transition = 'opacity 1.5s ease-out'; // 더 천천히 페이드아웃
-        mask.appendChild(fadeOutRect);
-        
-        // transition이 적용되도록 브라우저에 스타일 적용 시간을 줌
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                fadeOutRect.setAttribute('opacity', '1'); // 나머지 부분 완전히 지워짐
-            });
-        });
     };
     
     // 드래그 시작
@@ -1151,131 +1424,150 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
         e.preventDefault();
     });
     
-    // 드래그 중
+    // 드래그 중 (requestAnimationFrame으로 최적화)
+    let rafId = null;
+    let pendingMouseMove = null;
+    
     const handleMouseMove = (e) => {
         if (!isDragging) return;
         
-        // 브러쉬 위치 업데이트
-        const brushX = e.clientX - brushOffsetX;
-        const brushY = e.clientY - brushOffsetY;
-        brushContainer.style.left = `${brushX}px`;
-        brushContainer.style.top = `${brushY}px`;
-        brushContainer.style.right = 'auto';
-        brushContainer.style.bottom = 'auto';
+        // 마지막 이벤트 저장 (가장 최신 위치만 사용)
+        pendingMouseMove = e;
         
-        // 브러쉬 SVG 내의 붓 끝 부분 위치 계산
-        const brushRect = brushContainer.getBoundingClientRect();
+        // 이미 requestAnimationFrame이 예약되어 있으면 스킵
+        if (rafId !== null) return;
         
-        // 브러쉬 컨테이너 내에서 붓 끝의 실제 위치
-        const brushTipX = brushRect.left + brushRect.width * brushTipRatioX;
-        const brushTipY = brushRect.top + brushRect.height * brushTipRatioY;
-        
-        const svgContainerRect = svgContainer.getBoundingClientRect();
-        
-        // 붓 끝이 SVG 컨테이너 영역 안에 있는지 확인
-        if (brushTipX >= svgContainerRect.left && brushTipX <= svgContainerRect.right &&
-            brushTipY >= svgContainerRect.top && brushTipY <= svgContainerRect.bottom) {
+        rafId = requestAnimationFrame(() => {
+            rafId = null;
             
-            // 붓 끝을 SVG 좌표로 변환
-            const x = brushTipX - svgContainerRect.left;
-            const y = brushTipY - svgContainerRect.top;
+            if (!pendingMouseMove) return;
+            const e = pendingMouseMove;
+            pendingMouseMove = null;
             
-            if (lastX !== null && lastY !== null) {
-                // 이전 위치와 현재 위치 사이의 거리 계산
-                const dx = x - lastX;
-                const dy = y - lastY;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+            // 브러쉬 위치 업데이트
+            const brushX = e.clientX - brushOffsetX;
+            const brushY = e.clientY - brushOffsetY;
+            brushContainer.style.left = `${brushX}px`;
+            brushContainer.style.top = `${brushY}px`;
+            brushContainer.style.right = 'auto';
+            brushContainer.style.bottom = 'auto';
+            
+            // 브러쉬 SVG 내의 붓 끝 부분 위치 계산 (캐시된 값 사용)
+            const brushRect = brushContainer.getBoundingClientRect();
+            
+            // 브러쉬 컨테이너 내에서 붓 끝의 실제 위치
+            const brushTipX = brushRect.left + brushRect.width * brushTipRatioX;
+            const brushTipY = brushRect.top + brushRect.height * brushTipRatioY;
+            
+            // 캐시된 svgContainerRect 사용
+            if (!cachedSvgRect || Date.now() - rectCacheTime > RECT_CACHE_INTERVAL) {
+                cachedSvgRect = svgContainer.getBoundingClientRect();
+                rectCacheTime = Date.now();
+            }
+            const svgContainerRect = cachedSvgRect;
+            
+            // 붓 끝이 SVG 컨테이너 영역 안에 있는지 확인
+            if (brushTipX >= svgContainerRect.left && brushTipX <= svgContainerRect.right &&
+                brushTipY >= svgContainerRect.top && brushTipY <= svgContainerRect.bottom) {
                 
-                if (distance > 0) {
-                    // 두 점 사이에 여러 개의 원을 배치하여 스윽 이어지게
-                    const steps = Math.ceil(distance / (brushRadius * 0.5)); // 원이 겹치도록 밀도 있게 배치
-                    const stepX = dx / steps;
-                    const stepY = dy / steps;
+                // 붓 끝을 SVG 좌표로 변환
+                const x = brushTipX - svgContainerRect.left;
+                const y = brushTipY - svgContainerRect.top;
+                
+                if (lastX !== null && lastY !== null) {
+                    // 이전 위치와 현재 위치 사이의 거리 계산
+                    const dx = x - lastX;
+                    const dy = y - lastY;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
                     
-                    for (let i = 0; i <= steps; i++) {
-                        const circleX = lastX + stepX * i;
-                        const circleY = lastY + stepY * i;
+                    if (distance > 0) {
+                        // 두 점 사이에 여러 개의 원을 배치하여 스윽 이어지게
+                        const steps = Math.ceil(distance / (brushRadius * 0.5)); // 원이 겹치도록 밀도 있게 배치
+                        const stepX = dx / steps;
+                        const stepY = dy / steps;
                         
-                        // Canvas 좌표로 변환
-                        const canvasCoords = toCanvasCoords(circleX, circleY);
+                        // DocumentFragment로 DOM 조작 최적화
+                        const fragment = document.createDocumentFragment();
                         
-                        // 해당 이미지의 Canvas에 그리기
-                        if (canvasCoords.canvasIndex >= 0 && canvasCoords.canvasIndex < eraseCanvases.length) {
-                            const targetCanvas = eraseCanvases[canvasCoords.canvasIndex];
-                            const targetCtx = eraseCtxs[canvasCoords.canvasIndex];
+                        for (let i = 0; i <= steps; i++) {
+                            const circleX = lastX + stepX * i;
+                            const circleY = lastY + stepY * i;
                             
-                            // Canvas 영역 내에 있는지 확인
-                            if (canvasCoords.x >= -brushRadius && canvasCoords.x < targetCanvas.width + brushRadius &&
-                                canvasCoords.y >= -brushRadius && canvasCoords.y < targetCanvas.height + brushRadius) {
-                                // 해당 Canvas에 지워진 영역 기록 (완전히 투명하게)
-                                targetCtx.globalCompositeOperation = 'destination-out';
-                                targetCtx.globalAlpha = 1.0;
-                                targetCtx.beginPath();
-                                targetCtx.arc(canvasCoords.x, canvasCoords.y, brushRadius, 0, Math.PI * 2);
-                                targetCtx.fill();
+                            // Canvas 좌표로 변환
+                            const canvasCoords = toCanvasCoords(circleX, circleY);
+                            
+                            // 해당 이미지의 Canvas에 그리기
+                            if (canvasCoords.canvasIndex >= 0 && canvasCoords.canvasIndex < eraseCanvases.length) {
+                                const targetCanvas = eraseCanvases[canvasCoords.canvasIndex];
+                                const targetCtx = eraseCtxs[canvasCoords.canvasIndex];
+                                
+                                // Canvas 영역 내에 있는지 확인
+                                if (canvasCoords.x >= -brushRadius && canvasCoords.x < targetCanvas.width + brushRadius &&
+                                    canvasCoords.y >= -brushRadius && canvasCoords.y < targetCanvas.height + brushRadius) {
+                                    // 해당 Canvas에 지워진 영역 기록 (완전히 투명하게)
+                                    targetCtx.globalCompositeOperation = 'destination-out';
+                                    targetCtx.globalAlpha = 1.0;
+                                    targetCtx.beginPath();
+                                    targetCtx.arc(canvasCoords.x, canvasCoords.y, brushRadius, 0, Math.PI * 2);
+                                    targetCtx.fill();
+                                }
                             }
+                            
+                            // 마스크에 검은색 원 추가 (fill-opacity로 60%만 지워지게)
+                            // fill-opacity 0.6 = 60% 지워짐 (40% 보임)
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', circleX);
+                            circle.setAttribute('cy', circleY);
+                            circle.setAttribute('r', brushRadius);
+                            circle.setAttribute('fill', 'black'); // 검은색 = 지워짐
+                            circle.setAttribute('fill-opacity', '0.6'); // 60%만 지워짐
+                            fragment.appendChild(circle);
                         }
                         
-                        // 마스크에 검은색 원 추가 (fill-opacity로 60%만 지워지게)
-                        // fill-opacity 0.6 = 60% 지워짐 (40% 보임)
-                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                        circle.setAttribute('cx', circleX);
-                        circle.setAttribute('cy', circleY);
-                        circle.setAttribute('r', brushRadius);
-                        circle.setAttribute('fill', 'black'); // 검은색 = 지워짐
-                        circle.setAttribute('fill-opacity', '0.6'); // 60%만 지워짐
-                        mask.appendChild(circle);
+                        // 한 번에 DOM에 추가 (성능 최적화)
+                        mask.appendChild(fragment);
+                        
+                        checkAndTriggerFadeOut();
+                    }
+                } else {
+                    // 첫 번째 점일 때는 원 하나만 추가
+                    // Canvas 좌표로 변환
+                    const canvasCoords = toCanvasCoords(x, y);
+                    
+                    // 해당 이미지의 Canvas에 그리기
+                    if (canvasCoords.canvasIndex >= 0 && canvasCoords.canvasIndex < eraseCanvases.length) {
+                        const targetCanvas = eraseCanvases[canvasCoords.canvasIndex];
+                        const targetCtx = eraseCtxs[canvasCoords.canvasIndex];
+                        
+                        // Canvas 영역 내에 있는지 확인
+                        if (canvasCoords.x >= -brushRadius && canvasCoords.x < targetCanvas.width + brushRadius &&
+                            canvasCoords.y >= -brushRadius && canvasCoords.y < targetCanvas.height + brushRadius) {
+                            // 해당 Canvas에 지워진 영역 기록 (완전히 투명하게)
+                            targetCtx.globalCompositeOperation = 'destination-out';
+                            targetCtx.globalAlpha = 1.0;
+                            targetCtx.beginPath();
+                            targetCtx.arc(canvasCoords.x, canvasCoords.y, brushRadius, 0, Math.PI * 2);
+                            targetCtx.fill();
+                        }
                     }
                     
-                    // 지워진 비율 확인
-                    const erasedRatio = getErasedRatio();
-                    if (erasedRatio >= 0.6 && !fadeOutAnimation) {
-                        startFadeOut();
-                    }
-                }
-            } else {
-                // 첫 번째 점일 때는 원 하나만 추가
-                // Canvas 좌표로 변환
-                const canvasCoords = toCanvasCoords(x, y);
-                
-                // 해당 이미지의 Canvas에 그리기
-                if (canvasCoords.canvasIndex >= 0 && canvasCoords.canvasIndex < eraseCanvases.length) {
-                    const targetCanvas = eraseCanvases[canvasCoords.canvasIndex];
-                    const targetCtx = eraseCtxs[canvasCoords.canvasIndex];
+                    // 마스크에 회색 원 추가 (60%만 지워지게)
+                    // SVG 마스크에서 회색 = 부분적으로 보임
+                    // 60% 지워지려면 40% 보여야 하므로, 마스크 값은 0.4 * 255 = 102 (회색)
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', x);
+                    circle.setAttribute('cy', y);
+                    circle.setAttribute('r', brushRadius);
+                    circle.setAttribute('fill', 'rgb(102, 102, 102)'); // 40% 보임 = 60% 지워짐
+                    // mask.appendChild(circle);
                     
-                    // Canvas 영역 내에 있는지 확인
-                    if (canvasCoords.x >= -brushRadius && canvasCoords.x < targetCanvas.width + brushRadius &&
-                        canvasCoords.y >= -brushRadius && canvasCoords.y < targetCanvas.height + brushRadius) {
-                        // 해당 Canvas에 지워진 영역 기록 (완전히 투명하게)
-                        targetCtx.globalCompositeOperation = 'destination-out';
-                        targetCtx.globalAlpha = 1.0;
-                        targetCtx.beginPath();
-                        targetCtx.arc(canvasCoords.x, canvasCoords.y, brushRadius, 0, Math.PI * 2);
-                        targetCtx.fill();
-                    }
+                    checkAndTriggerFadeOut();
                 }
                 
-                // 마스크에 회색 원 추가 (60%만 지워지게)
-                // SVG 마스크에서 회색 = 부분적으로 보임
-                // 60% 지워지려면 40% 보여야 하므로, 마스크 값은 0.4 * 255 = 102 (회색)
-                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                circle.setAttribute('cx', x);
-                circle.setAttribute('cy', y);
-                circle.setAttribute('r', brushRadius);
-                circle.setAttribute('fill', 'rgb(102, 102, 102)'); // 40% 보임 = 60% 지워짐
-                mask.appendChild(circle);
-                
-                
-                // 지워진 비율 확인
-                const erasedRatio = getErasedRatio();
-                if (erasedRatio >= 0.6 && !fadeOutAnimation) {
-                    startFadeOut();
-                }
+                lastX = x;
+                lastY = y;
             }
-            
-            lastX = x;
-            lastY = y;
-        }
+        });
     };
     
     document.addEventListener('mousemove', handleMouseMove);
@@ -1286,6 +1578,12 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
             isDragging = false;
             lastX = null;
             lastY = null;
+            // 대기 중인 requestAnimationFrame 취소
+            if (rafId !== null) {
+                cancelAnimationFrame(rafId);
+                rafId = null;
+            }
+            pendingMouseMove = null;
             // 커서 다시 표시
             document.body.style.cursor = '';
         }
@@ -1305,131 +1603,152 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
         e.preventDefault();
     });
     
+    // 터치 이벤트도 requestAnimationFrame으로 최적화
+    let touchRafId = null;
+    let pendingTouchMove = null;
+    
     const handleTouchMove = (e) => {
         if (!isDragging) return;
-        const touch = e.touches[0];
         
-        // 브러쉬 위치 업데이트
-        const brushX = touch.clientX - brushOffsetX;
-        const brushY = touch.clientY - brushOffsetY;
-        brushContainer.style.left = `${brushX}px`;
-        brushContainer.style.top = `${brushY}px`;
-        brushContainer.style.right = 'auto';
-        brushContainer.style.bottom = 'auto';
+        // 마지막 이벤트 저장 (가장 최신 위치만 사용)
+        pendingTouchMove = e;
         
-        // 브러쉬 SVG 내의 붓 끝 부분 위치 계산
-        const brushRect = brushContainer.getBoundingClientRect();
+        // 이미 requestAnimationFrame이 예약되어 있으면 스킵
+        if (touchRafId !== null) return;
         
-        // 브러쉬 컨테이너 내에서 붓 끝의 실제 위치
-        const brushTipX = brushRect.left + brushRect.width * brushTipRatioX;
-        const brushTipY = brushRect.top + brushRect.height * brushTipRatioY;
-        
-        const svgContainerRect = svgContainer.getBoundingClientRect();
-        
-        // 붓 끝이 SVG 컨테이너 영역 안에 있는지 확인
-        if (brushTipX >= svgContainerRect.left && brushTipX <= svgContainerRect.right &&
-            brushTipY >= svgContainerRect.top && brushTipY <= svgContainerRect.bottom) {
+        touchRafId = requestAnimationFrame(() => {
+            touchRafId = null;
             
-            // 붓 끝을 SVG 좌표로 변환
-            const x = brushTipX - svgContainerRect.left;
-            const y = brushTipY - svgContainerRect.top;
+            if (!pendingTouchMove) return;
+            const e = pendingTouchMove;
+            pendingTouchMove = null;
             
-            if (lastX !== null && lastY !== null) {
-                // 이전 위치와 현재 위치 사이의 거리 계산
-                const dx = x - lastX;
-                const dy = y - lastY;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+            const touch = e.touches[0];
+            
+            // 브러쉬 위치 업데이트
+            const brushX = touch.clientX - brushOffsetX;
+            const brushY = touch.clientY - brushOffsetY;
+            brushContainer.style.left = `${brushX}px`;
+            brushContainer.style.top = `${brushY}px`;
+            brushContainer.style.right = 'auto';
+            brushContainer.style.bottom = 'auto';
+            
+            // 브러쉬 SVG 내의 붓 끝 부분 위치 계산 (캐시된 값 사용)
+            const brushRect = brushContainer.getBoundingClientRect();
+            
+            // 브러쉬 컨테이너 내에서 붓 끝의 실제 위치
+            const brushTipX = brushRect.left + brushRect.width * brushTipRatioX;
+            const brushTipY = brushRect.top + brushRect.height * brushTipRatioY;
+            
+            // 캐시된 svgContainerRect 사용
+            if (!cachedSvgRect || Date.now() - rectCacheTime > RECT_CACHE_INTERVAL) {
+                cachedSvgRect = svgContainer.getBoundingClientRect();
+                rectCacheTime = Date.now();
+            }
+            const svgContainerRect = cachedSvgRect;
+            
+            // 붓 끝이 SVG 컨테이너 영역 안에 있는지 확인
+            if (brushTipX >= svgContainerRect.left && brushTipX <= svgContainerRect.right &&
+                brushTipY >= svgContainerRect.top && brushTipY <= svgContainerRect.bottom) {
                 
-                if (distance > 0) {
-                    // 두 점 사이에 여러 개의 원을 배치하여 스윽 이어지게
-                    const steps = Math.ceil(distance / (brushRadius * 0.5)); // 원이 겹치도록 밀도 있게 배치
-                    const stepX = dx / steps;
-                    const stepY = dy / steps;
+                // 붓 끝을 SVG 좌표로 변환
+                const x = brushTipX - svgContainerRect.left;
+                const y = brushTipY - svgContainerRect.top;
+                
+                if (lastX !== null && lastY !== null) {
+                    // 이전 위치와 현재 위치 사이의 거리 계산
+                    const dx = x - lastX;
+                    const dy = y - lastY;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
                     
-                    for (let i = 0; i <= steps; i++) {
-                        const circleX = lastX + stepX * i;
-                        const circleY = lastY + stepY * i;
+                    if (distance > 0) {
+                        // 두 점 사이에 여러 개의 원을 배치하여 스윽 이어지게
+                        const steps = Math.ceil(distance / (brushRadius * 0.5)); // 원이 겹치도록 밀도 있게 배치
+                        const stepX = dx / steps;
+                        const stepY = dy / steps;
                         
-                        // Canvas 좌표로 변환
-                        const canvasCoords = toCanvasCoords(circleX, circleY);
+                        // DocumentFragment로 DOM 조작 최적화
+                        const fragment = document.createDocumentFragment();
                         
-                        // 해당 이미지의 Canvas에 그리기
-                        if (canvasCoords.canvasIndex >= 0 && canvasCoords.canvasIndex < eraseCanvases.length) {
-                            const targetCanvas = eraseCanvases[canvasCoords.canvasIndex];
-                            const targetCtx = eraseCtxs[canvasCoords.canvasIndex];
+                        for (let i = 0; i <= steps; i++) {
+                            const circleX = lastX + stepX * i;
+                            const circleY = lastY + stepY * i;
                             
-                            // Canvas 영역 내에 있는지 확인
-                            if (canvasCoords.x >= -brushRadius && canvasCoords.x < targetCanvas.width + brushRadius &&
-                                canvasCoords.y >= -brushRadius && canvasCoords.y < targetCanvas.height + brushRadius) {
-                                // 해당 Canvas에 지워진 영역 기록 (완전히 투명하게)
-                                targetCtx.globalCompositeOperation = 'destination-out';
-                                targetCtx.globalAlpha = 1.0;
-                                targetCtx.beginPath();
-                                targetCtx.arc(canvasCoords.x, canvasCoords.y, brushRadius, 0, Math.PI * 2);
-                                targetCtx.fill();
+                            // Canvas 좌표로 변환
+                            const canvasCoords = toCanvasCoords(circleX, circleY);
+                            
+                            // 해당 이미지의 Canvas에 그리기
+                            if (canvasCoords.canvasIndex >= 0 && canvasCoords.canvasIndex < eraseCanvases.length) {
+                                const targetCanvas = eraseCanvases[canvasCoords.canvasIndex];
+                                const targetCtx = eraseCtxs[canvasCoords.canvasIndex];
+                                
+                                // Canvas 영역 내에 있는지 확인
+                                if (canvasCoords.x >= -brushRadius && canvasCoords.x < targetCanvas.width + brushRadius &&
+                                    canvasCoords.y >= -brushRadius && canvasCoords.y < targetCanvas.height + brushRadius) {
+                                    // 해당 Canvas에 지워진 영역 기록 (완전히 투명하게)
+                                    targetCtx.globalCompositeOperation = 'destination-out';
+                                    targetCtx.globalAlpha = 1.0;
+                                    targetCtx.beginPath();
+                                    targetCtx.arc(canvasCoords.x, canvasCoords.y, brushRadius, 0, Math.PI * 2);
+                                    targetCtx.fill();
+                                }
                             }
+                            
+                            // 마스크에 검은색 원 추가 (fill-opacity로 60%만 지워지게)
+                            // fill-opacity 0.6 = 60% 지워짐 (40% 보임)
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', circleX);
+                            circle.setAttribute('cy', circleY);
+                            circle.setAttribute('r', brushRadius);
+                            circle.setAttribute('fill', 'black'); // 검은색 = 지워짐
+                            circle.setAttribute('fill-opacity', '0.6'); // 60%만 지워짐
+                            fragment.appendChild(circle);
                         }
                         
-                        // 마스크에 검은색 원 추가 (fill-opacity로 60%만 지워지게)
-                        // fill-opacity 0.6 = 60% 지워짐 (40% 보임)
-                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                        circle.setAttribute('cx', circleX);
-                        circle.setAttribute('cy', circleY);
-                        circle.setAttribute('r', brushRadius);
-                        circle.setAttribute('fill', 'black'); // 검은색 = 지워짐
-                        circle.setAttribute('fill-opacity', '0.6'); // 60%만 지워짐
-                        mask.appendChild(circle);
+                        // 한 번에 DOM에 추가 (성능 최적화)
+                        mask.appendChild(fragment);
+                        
+                        checkAndTriggerFadeOut();
+                    }
+                } else {
+                    // 첫 번째 점일 때는 원 하나만 추가
+                    // Canvas 좌표로 변환
+                    const canvasCoords = toCanvasCoords(x, y);
+                    
+                    // 해당 이미지의 Canvas에 그리기
+                    if (canvasCoords.canvasIndex >= 0 && canvasCoords.canvasIndex < eraseCanvases.length) {
+                        const targetCanvas = eraseCanvases[canvasCoords.canvasIndex];
+                        const targetCtx = eraseCtxs[canvasCoords.canvasIndex];
+                        
+                        // Canvas 영역 내에 있는지 확인
+                        if (canvasCoords.x >= -brushRadius && canvasCoords.x < targetCanvas.width + brushRadius &&
+                            canvasCoords.y >= -brushRadius && canvasCoords.y < targetCanvas.height + brushRadius) {
+                            // 해당 Canvas에 지워진 영역 기록 (완전히 투명하게)
+                            targetCtx.globalCompositeOperation = 'destination-out';
+                            targetCtx.globalAlpha = 1.0;
+                            targetCtx.beginPath();
+                            targetCtx.arc(canvasCoords.x, canvasCoords.y, brushRadius, 0, Math.PI * 2);
+                            targetCtx.fill();
+                        }
                     }
                     
-                    // 지워진 비율 확인
-                    const erasedRatio = getErasedRatio();
-                    if (erasedRatio >= 0.6 && !fadeOutAnimation) {
-                        startFadeOut();
-                    }
-                }
-            } else {
-                // 첫 번째 점일 때는 원 하나만 추가
-                // Canvas 좌표로 변환
-                const canvasCoords = toCanvasCoords(x, y);
-                
-                // 해당 이미지의 Canvas에 그리기
-                if (canvasCoords.canvasIndex >= 0 && canvasCoords.canvasIndex < eraseCanvases.length) {
-                    const targetCanvas = eraseCanvases[canvasCoords.canvasIndex];
-                    const targetCtx = eraseCtxs[canvasCoords.canvasIndex];
+                    // 마스크에 회색 원 추가 (60%만 지워지게)
+                    // SVG 마스크에서 회색 = 부분적으로 보임
+                    // 60% 지워지려면 40% 보여야 하므로, 마스크 값은 0.4 * 255 = 102 (회색)
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', x);
+                    circle.setAttribute('cy', y);
+                    circle.setAttribute('r', brushRadius);
+                    circle.setAttribute('fill', 'rgb(102, 102, 102)'); // 40% 보임 = 60% 지워짐
+                    mask.appendChild(circle);
                     
-                    // Canvas 영역 내에 있는지 확인
-                    if (canvasCoords.x >= -brushRadius && canvasCoords.x < targetCanvas.width + brushRadius &&
-                        canvasCoords.y >= -brushRadius && canvasCoords.y < targetCanvas.height + brushRadius) {
-                        // 해당 Canvas에 지워진 영역 기록 (완전히 투명하게)
-                        targetCtx.globalCompositeOperation = 'destination-out';
-                        targetCtx.globalAlpha = 1.0;
-                        targetCtx.beginPath();
-                        targetCtx.arc(canvasCoords.x, canvasCoords.y, brushRadius, 0, Math.PI * 2);
-                        targetCtx.fill();
-                    }
+                    checkAndTriggerFadeOut();
                 }
                 
-                // 마스크에 회색 원 추가 (60%만 지워지게)
-                // SVG 마스크에서 회색 = 부분적으로 보임
-                // 60% 지워지려면 40% 보여야 하므로, 마스크 값은 0.4 * 255 = 102 (회색)
-                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                circle.setAttribute('cx', x);
-                circle.setAttribute('cy', y);
-                circle.setAttribute('r', brushRadius);
-                circle.setAttribute('fill', 'rgb(102, 102, 102)'); // 40% 보임 = 60% 지워짐
-                mask.appendChild(circle);
-                
-                
-                // 지워진 비율 확인
-                const erasedRatio = getErasedRatio();
-                if (erasedRatio >= 0.6 && !fadeOutAnimation) {
-                    startFadeOut();
-                }
+                lastX = x;
+                lastY = y;
             }
-            
-            lastX = x;
-            lastY = y;
-        }
+        });
     };
     
     document.addEventListener('touchmove', handleTouchMove);
@@ -1437,6 +1756,14 @@ function initBrushDrawingDrag(brushContainer, pageLayer) {
     document.addEventListener('touchend', () => {
         if (isDragging) {
             isDragging = false;
+            lastX = null;
+            lastY = null;
+            // 대기 중인 requestAnimationFrame 취소
+            if (touchRafId !== null) {
+                cancelAnimationFrame(touchRafId);
+                touchRafId = null;
+            }
+            pendingTouchMove = null;
         }
     });
     
@@ -1457,15 +1784,17 @@ function turnPage() {
     if (!currentPageLayer) return;
     
     // 페이지 넘김 사운드 재생
-    if (pageTurnAudio) {
-        pageTurnAudio.pause();
-        pageTurnAudio.currentTime = 0;
+    // 오디오 토글이 활성화된 경우에만 재생
+    if (window.isAudioEnabled && window.createPageTurnAudio) {
+        if (pageTurnAudio) {
+            pageTurnAudio.pause();
+            pageTurnAudio.currentTime = 0;
+        }
+        pageTurnAudio = window.createPageTurnAudio(1);
+        pageTurnAudio.play().catch(error => {
+            console.error('페이지 넘김 사운드 재생 실패:', error);
+        });
     }
-    pageTurnAudio = new Audio('audio/page-turn.mp3');
-    pageTurnAudio.volume = 0.5;
-    pageTurnAudio.play().catch(error => {
-        console.error('페이지 넘김 사운드 재생 실패:', error);
-    });
     
     // 페이지 넘김 시작 시 스크롤 다시 활성화
     document.body.style.overflow = '';
@@ -1473,6 +1802,7 @@ function turnPage() {
     
     // 페이지 넘김 중 플래그 설정
     isPageTurning = true;
+    window.isPageTurning = true; // 전역으로 설정 (book.js에서 사용)
     
     // 페이지 넘김 인디케이터 제거
     const pageTurnIndicator = currentPageLayer.querySelector('.page-turn-indicator');
@@ -1488,11 +1818,13 @@ function turnPage() {
     
     // 다음 페이지가 없으면 미리 준비 (항상 확인)
     if (currentSectionIndex + 1 < sections.length) {
-        // 기존 .next 페이지가 있으면 제거하고 새로 로드
-        if (nextPageLayer) {
-            nextPageLayer.remove();
+        // 기존 .next 페이지가 있으면 재사용, 없으면 새로 로드
+        if (!nextPageLayer) {
+            loadSection(currentSectionIndex + 1, true); // 다음 페이지 미리 로드
+        } else {
+            // 기존 .next 페이지 재사용 (내용만 업데이트)
+            loadSection(currentSectionIndex + 1, true);
         }
-        loadSection(currentSectionIndex + 1, true); // 다음 페이지 미리 로드
     }
     
     // 현재 페이지를 좌측으로 넘김 (내용은 그대로 유지)
@@ -1507,12 +1839,25 @@ function turnPage() {
             // 다음 페이지 레이어를 현재로 변경
             const newCurrentLayer = bookContent.querySelector('.page-layer.next');
             if (newCurrentLayer) {
+                // 부드러운 전환을 위해 transition 추가
+                newCurrentLayer.style.visibility = 'visible';
+                newCurrentLayer.style.transition = 'opacity 0.3s ease-in, transform 0.3s ease-in';
                 newCurrentLayer.className = 'page-layer current';
                 newCurrentLayer.style.transform = 'translateX(0)';
-                newCurrentLayer.style.opacity = '1';
+                // 이미 opacity가 1이어야 하지만 확실하게 설정
+                if (newCurrentLayer.style.opacity === '0' || !newCurrentLayer.style.opacity) {
+                    newCurrentLayer.style.opacity = '1';
+                }
             } else {
                 // 다음 페이지 레이어가 없으면 새로 로드
                 loadSection(currentSectionIndex);
+                
+                // 다음 섹션이 텍스트만 있는 경우 자동으로 넘어가지 않도록 플래그 설정
+                const nextSection = sections[currentSectionIndex];
+                if (nextSection && !nextSection.svgPath && !nextSection.svgPath01) {
+                    // 텍스트만 있는 섹션은 자동으로 넘어가므로, 여기서는 아무것도 하지 않음
+                    // startSectionAnimation에서 자동으로 처리됨
+                }
                 return;
             }
             
@@ -1525,6 +1870,7 @@ function turnPage() {
             
             // 페이지 넘김 완료 플래그 해제
             isPageTurning = false;
+            window.isPageTurning = false; // 전역으로 해제
             
             // 스크롤 다시 활성화
             document.body.style.overflow = '';
@@ -1535,11 +1881,31 @@ function turnPage() {
             setTimeout(() => {
                 const finalCurrentLayer = bookContent.querySelector('.page-layer.current');
                 if (finalCurrentLayer) {
-                    // 상태 초기화
+                    const section = sections[currentSectionIndex];
+                    
+                    // 다음 섹션이 텍스트만 있는 경우 처리
+                    if (section && !section.svgPath && !section.svgPath01) {
+                        // 상태 초기화 (텍스트만 있는 섹션)
+                        sectionState = SectionState.TYPING;
+                        svgPaths = [];
+                        totalPathLength = 0;
+                        typingText = section.text || '';
+                        typingIndex = 0;
+                        typingComplete = false;
+                        pageTurnTriggered = false;
+                        brushDrawingShown = false;
+                        
+                        // 텍스트 타이핑 시작
+                        if (typingText) {
+                            startSectionAnimation();
+                        }
+                        return;
+                    }
+                    
+                    // 상태 초기화 (SVG가 있는 섹션)
                     sectionState = SectionState.SVG;
                     svgPaths = [];
                     totalPathLength = 0;
-                    const section = sections[currentSectionIndex];
                     typingText = section.text || '';
                     typingIndex = 0;
                     typingComplete = false;
@@ -1647,11 +2013,51 @@ function turnPage() {
                 }
             }, 100);
         } else {
-            // 모든 섹션 완료 - 책 닫기 로직 (추후 구현)
-            isPageTurning = false;
-            // 스크롤 다시 활성화
-            document.body.style.overflow = '';
-            // TODO: 책 닫기 애니메이션
+            // 모든 섹션 완료 - 마지막 페이지 이후 스크롤 처리
+            currentPageLayer.style.transition = 'transform 1.5s ease-in-out, opacity 1.5s ease-out';
+            currentPageLayer.style.transform = 'translateX(-100%) rotateY(-15deg)';
+            currentPageLayer.style.opacity = '0';
+
+            // 백그라운드 오디오 페이드 아웃
+            if (window.backgroundAudio && typeof window.fadeOutBackgroundAudio === 'function') {
+                window.fadeOutBackgroundAudio();
+            }
+
+            setTimeout(() => {
+                // .book-content 페이드아웃 (이미 turnPage에서 opacity 0으로 설정됨)
+                const bookContent = document.querySelector('.book-content');
+                if (bookContent) {
+                    bookContent.style.opacity = '0';
+                    bookContent.style.transition = 'opacity 1.5s ease-out';
+                }
+                
+                // 책(3D) 페이드인
+                const sceneContainer = document.getElementById('scene-container');
+                if (sceneContainer) {
+                    sceneContainer.style.opacity = '0';
+                    sceneContainer.style.transition = 'opacity 1.5s ease-out';
+                    setTimeout(() => {
+                        sceneContainer.style.opacity = '1';
+                    }, 100);
+                }
+                
+                setTimeout(() => {
+                    if (bookContent) {
+                        bookContent.style.display = 'none';
+                    }
+                    
+                    isPageTurning = false;
+                    window.isPageTurning = false; // 전역으로 해제
+                    lastPageReached = true;
+                    
+                    const lastSectionRange = getSectionScrollRange(sections.length - 1);
+                    window.lastPageScrollStart = lastSectionRange.end;
+                    window.lastPageReached = true;
+
+                    // 스크롤을 맨 위로 보내서 클로징 애니메이션을 준비시킵니다.
+                    window.scrollTo(0, window.lastPageScrollStart);
+                }, 1500);
+            }, 0);
         }
     }, 1500);
 }
